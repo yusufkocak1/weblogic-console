@@ -311,7 +311,7 @@ loading, empty and error states; override any cell with a `#cell:<key>` slot.
 
 ## Compatibility
 
-- **Node.js 18 or newer** to run the console.
+- **Node.js 24 or newer** to run the console (`.nvmrc` pins it for nvm users).
 - **A WebLogic AdminServer with RESTful Management Services enabled** — this is
   the default in modern releases. The API lives under
   `/management/weblogic/latest`.

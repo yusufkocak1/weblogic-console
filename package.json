@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Modern, lightweight web console for Oracle WebLogic Server (REST management API)",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
