@@ -90,7 +90,15 @@ const clusters = computed(() => {
       <section v-for="cluster in clusters" :key="cluster.name" class="card p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <h2 class="font-semibold text-zinc-900 dark:text-zinc-50">{{ cluster.name }}</h2>
+            <h2 class="font-semibold">
+              <RouterLink
+                :to="{ name: 'cluster-detail', params: { name: cluster.name } }"
+                class="text-indigo-600 hover:underline dark:text-indigo-400"
+                title="Open this cluster: replication detail and every setting it has"
+              >
+                {{ cluster.name }}
+              </RouterLink>
+            </h2>
             <p class="mt-0.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ cluster.address }}</p>
           </div>
           <span
@@ -133,15 +141,16 @@ const clusters = computed(() => {
         </dl>
 
         <div class="mt-4 flex flex-wrap gap-1.5">
-          <span
+          <RouterLink
             v-for="member in cluster.members"
             :key="member"
-            class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-800"
-            :title="`${member} — current state of this cluster member. Manage it on the Servers page.`"
+            :to="{ name: 'server-detail', params: { name: member } }"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            :title="`${member} — current state of this cluster member. Click to open it and change its settings.`"
           >
             {{ member }}
             <StateBadge :state="cluster.states.get(member) || 'SHUTDOWN'" />
-          </span>
+          </RouterLink>
         </div>
       </section>
     </div>

@@ -64,15 +64,28 @@ const serversTone = computed(() => {
       :subtitle="`${connection.domainName} · ${connection.baseUrl}`"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="A single screen for the whole domain: the four counters summarise it, and each card below is one configured server. Everything is read-only here — use Servers to act on them."
+      help="A single screen for the whole domain: the four counters summarise it, and each card below is one configured server. Click a card to open that server, or Domain settings for what applies to the domain as a whole."
       @refresh="reload"
-    />
+    >
+      <template #actions>
+        <RouterLink
+          class="btn btn-ghost"
+          :to="{ name: 'domain-settings' }"
+          title="Settings that belong to no single server: the administration port, change auditing and the domain-wide log"
+        >
+          Domain settings
+        </RouterLink>
+      </template>
+    </PageHeader>
 
     <HelpPanel id="dashboard" title="New here? Start with these three steps" default-open>
       <ol class="list-decimal space-y-1 pl-4">
         <li>Check the counters: <strong>Servers running</strong> green means every configured server is up.</li>
         <li>Scan the server cards for a red or amber heap bar, or a state that is not RUNNING.</li>
-        <li>Click a card to open it on the <strong>Servers</strong> page, where you can start, suspend or stop it.</li>
+        <li>
+          Click a card to open that server — its runtime detail, the buttons to start, suspend or stop it, and every
+          setting it has.
+        </li>
       </ol>
       <p>
         Numbers refresh on the interval set in the top bar. Hover any ⓘ for an explanation; the ⓘ button up there
@@ -132,7 +145,7 @@ const serversTone = computed(() => {
         <RouterLink
           v-for="server in servers"
           :key="server.name"
-          :to="{ name: 'servers', query: { server: server.name } }"
+          :to="{ name: 'server-detail', params: { name: server.name } }"
           class="card p-4 transition hover:border-indigo-300 hover:shadow-md dark:hover:border-indigo-700"
         >
           <div class="flex items-start justify-between gap-2">

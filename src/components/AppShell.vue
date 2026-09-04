@@ -47,12 +47,6 @@ const NAV = [
     icon: 'M3 6h18v12H3V6Zm0 1.5 9 6 9-6',
   },
   {
-    name: 'configuration',
-    label: 'Configuration',
-    hint: 'Change domain settings — ports, pool sizes, log levels — and activate them. Every field explains what it does.',
-    icon: 'M4 6h10M18 6h2M4 12h2M10 12h10M4 18h10M18 18h2M16 4v4M8 10v4M16 16v4',
-  },
-  {
     name: 'monitoring',
     label: 'Monitoring',
     hint: 'Per-server JVM heap and thread pool detail — the page to open when something feels slow.',

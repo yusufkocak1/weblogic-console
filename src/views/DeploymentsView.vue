@@ -201,7 +201,13 @@ async function runAction(row, action) {
       @retry="reload"
     >
       <template #cell:name="{ row }">
-        <div class="font-medium text-zinc-900 dark:text-zinc-50">{{ row.name }}</div>
+        <RouterLink
+          :to="{ name: 'deployment-detail', params: { name: row.name } }"
+          class="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          title="Open this application: deployment state and its settings"
+        >
+          {{ row.name }}
+        </RouterLink>
         <div class="truncate font-mono text-xs text-zinc-400 dark:text-zinc-500" :title="row.sourcePath">
           {{ row.sourcePath }}
         </div>

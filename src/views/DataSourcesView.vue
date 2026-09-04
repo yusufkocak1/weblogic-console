@@ -148,7 +148,13 @@ async function testPool(row) {
       @retry="reload"
     >
       <template #cell:name="{ row }">
-        <div class="font-medium text-zinc-900 dark:text-zinc-50">{{ row.name }}</div>
+        <RouterLink
+          :to="{ name: 'data-source-detail', params: { name: row.name } }"
+          class="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          title="Open this data source: live pool figures and every setting it has"
+        >
+          {{ row.name }}
+        </RouterLink>
         <div class="truncate font-mono text-xs text-zinc-400 dark:text-zinc-500" :title="row.url">{{ row.url }}</div>
       </template>
 

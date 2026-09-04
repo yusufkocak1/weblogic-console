@@ -39,8 +39,9 @@ shared ops machine, or a container.
 Everything the console needs is already exposed by WebLogic's REST management
 API. `wl-console` is a small Vue front end over that API plus a thin local
 process to hold the connection. It stays deliberately narrow: **read the domain,
-watch the runtime, drive lifecycle operations.** It is not trying to replace
-WLST or the Remote Console for deep configuration work.
+watch the runtime, drive lifecycle operations, and change the settings you
+actually change day to day.** Creating and deleting objects is still WLST or
+Remote Console work.
 
 ## Quick start
 
@@ -181,12 +182,17 @@ src/
   api/
     client.js               fetch wrapper for the local backend, error shaping
     weblogic.js             one function per WebLogic endpoint / search payload
+    config.js               the `edit` tree: read, write, lock, activate
   stores/
     connection.js           live connections, saved profiles, active target
     ui.js                   theme, refresh interval, hint visibility, toasts
+    changes.js              the domain's configuration lock and pending changes
   composables/
     useResource.js          load + auto-refresh + abort + reload on domain switch
     useReconnect.js         password prompt for bringing a saved profile back
+    useServerActions.js     start/suspend/resume/shutdown, shared by list and page
+  settings/
+    catalog.js              every editable setting: plain name, help, when it applies
   components/               AppShell, DataTable, StateBadge, MeterBar,
                             InfoTip and HelpPanel (the in-app help), …
   views/                    one view per console section
@@ -212,6 +218,19 @@ depends on Vue, Vue Router, Pinia and Tailwind — nothing else at runtime.
 | **REST Explorer** | Any endpoint of the management API, with bookmarks and pretty-printed JSON     | anything                                                            |
 | **Connections**   | Saved domains and open sessions: switch, rename, close, forget                 | local, no WebLogic call                                             |
 
+Click a server, cluster, data source or application in those lists and you get
+its own page: what it is doing right now, the actions that apply to it, and its
+settings. There is no separate "configuration" section — you change a thing
+where you were already looking at it.
+
+| Page                | What you can change there                                                     | MBeans                                                              |
+| ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **A server**        | Listen address and ports, SSL port, start-up mode and auto-restart, graceful shutdown, stuck-thread thresholds, message size, JVM arguments Node Manager starts it with — plus its log file, rotation and per-destination severities | `edit/servers/{name}`, `/SSL`, `/serverStart`, `/log`               |
+| **A cluster**       | Unicast or multicast messaging, cluster address, load-balancing algorithm, front-end host and ports | `edit/clusters/{name}`                                              |
+| **A data source**   | Pool minimum/maximum/increment, reserve and inactive timeouts, connection testing, statement cache, transaction protocol, database URL and driver | `edit/JDBCSystemResources/{name}/JDBCResource/…`                    |
+| **An application**  | Deployment order, staging mode, deployment plan                               | `edit/appDeployments/{name}`                                        |
+| **Domain settings** | Administration port, configuration auditing, the classic console, the domain-wide log — reached from the Dashboard | `edit`, `edit/log`                                                  |
+
 Across every page:
 
 - **Several domains open at once**, with instant switching from the sidebar.
@@ -222,6 +241,15 @@ Across every page:
 - **Dark and light themes**, remembered per browser.
 - **Confirmation prompts** on every state-changing operation, each explaining
   what the operation actually does before you commit to it.
+- **Settings that explain themselves.** Every field has the name an operator
+  would use, one sentence on what happens when it is wrong, its WebLogic MBean
+  attribute underneath, and a badge saying when the change takes effect — live
+  on activate, after a restart, at next start, or on redeploy.
+- **WebLogic's staged edits, made visible.** Changing a setting takes the
+  domain-wide configuration lock, writes a pending change and activates it. A
+  bar at the top of the page always says whether anything is waiting, and who
+  holds the lock when it is not you. Edited fields show the value the
+  AdminServer still holds, and leaving the page with unsaved edits asks first.
 - **Actionable errors** — connection failures are translated into what to check,
   not just an error code.
 - **Built-in help.** Every page opens with a collapsible *how this page works*
@@ -344,11 +372,11 @@ loading, empty and error states; override any cell with a `#cell:<key>` slot.
 
 Not implemented yet, in rough order of usefulness:
 
-- **Configuration editing** — creating and modifying servers, data sources and
-  deployments. This needs the `/edit` tree with proper edit sessions: acquire
-  lock, change, activate, and handle conflicts. Everything today reads from the
-  read-only `/domainConfig` tree and performs runtime operations only, so the
-  console can never leave a dangling edit lock.
+- **Creating and deleting objects** — existing servers, clusters, data sources,
+  applications and log settings can be edited on their own pages, but adding a
+  new data source or removing a server still needs WLST or the Remote Console.
+- **Targeting** — moving a data source or application between servers and
+  clusters.
 - **Application deployment** — uploading a WAR/EAR and targeting it.
 - **Historical charts** — the data is polled already; it is not retained.
 - **Security realm views** — users, groups and role mappings.

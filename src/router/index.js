@@ -23,10 +23,22 @@ const routes = [
         meta: { title: 'Servers' },
       },
       {
+        path: 'servers/:name',
+        name: 'server-detail',
+        component: () => import('@/views/ServerDetailView.vue'),
+        meta: { title: 'Server' },
+      },
+      {
         path: 'clusters',
         name: 'clusters',
         component: () => import('@/views/ClustersView.vue'),
         meta: { title: 'Clusters' },
+      },
+      {
+        path: 'clusters/:name',
+        name: 'cluster-detail',
+        component: () => import('@/views/ClusterDetailView.vue'),
+        meta: { title: 'Cluster' },
       },
       {
         path: 'deployments',
@@ -35,19 +47,31 @@ const routes = [
         meta: { title: 'Deployments' },
       },
       {
+        path: 'deployments/:name',
+        name: 'deployment-detail',
+        component: () => import('@/views/DeploymentDetailView.vue'),
+        meta: { title: 'Application' },
+      },
+      {
         path: 'data-sources',
         name: 'data-sources',
         component: () => import('@/views/DataSourcesView.vue'),
         meta: { title: 'Data Sources' },
       },
+      {
+        path: 'data-sources/:name',
+        name: 'data-source-detail',
+        component: () => import('@/views/DataSourceDetailView.vue'),
+        meta: { title: 'Data source' },
+      },
       { path: 'jms', name: 'jms', component: () => import('@/views/JmsView.vue'), meta: { title: 'JMS' } },
       {
-        // The category is part of the path, and which server or data source is
-        // being configured rides in ?name= — so a page can be linked to.
-        path: 'configuration/:category?',
-        name: 'configuration',
-        component: () => import('@/views/ConfigurationView.vue'),
-        meta: { title: 'Configuration' },
+        // Settings live on the page of the thing they configure, so the domain's
+        // own settings hang off the Dashboard rather than a menu entry.
+        path: 'domain',
+        name: 'domain-settings',
+        component: () => import('@/views/DomainSettingsView.vue'),
+        meta: { title: 'Domain settings' },
       },
       {
         path: 'monitoring',
@@ -93,7 +117,9 @@ router.beforeEach((to) => {
 
 router.afterEach((to) => {
   const suffix = 'WebLogic Console'
-  document.title = to.meta.title ? `${to.meta.title} · ${suffix}` : suffix
+  // A detail page is named after the object it shows, not after its type.
+  const page = to.params.name ? `${to.params.name} · ${to.meta.title}` : to.meta.title
+  document.title = page ? `${page} · ${suffix}` : suffix
 })
 
 export default router

@@ -1,5 +1,11 @@
 /**
- * What the Configuration page can change, described in plain language.
+ * Every configurable setting, described in plain language.
+ *
+ * Each entry here is a section of settings for one kind of object, and it is
+ * rendered by SettingsPanel on that object's own page: the servers section on a
+ * server's page, the data source section on a data source's page, and so on.
+ * There is deliberately no separate "configuration" area — you change a thing
+ * where you were already looking at it.
  *
  * The classic console shows WebLogic's own attribute names — MaxCapacity,
  * StuckThreadMaxTime, FileMinSize — and leaves you to work out what they do.
@@ -126,10 +132,6 @@ export const CATEGORIES = [
     key: 'servers',
     label: 'Servers',
     blurb: 'Where a server listens, how it starts and stops, and when it calls a thread stuck.',
-    scope: 'servers',
-    pickerLabel: 'Which server?',
-    pickerHelp:
-      'Everything below belongs to this one server. The AdminServer is in the list too — changing its listen port is how you lock yourself out of this console, so leave that one until last.',
     groups: [
       {
         key: 'network',
@@ -349,10 +351,6 @@ export const CATEGORIES = [
     key: 'clusters',
     label: 'Clusters',
     blurb: 'How cluster members find each other, and how load is spread across them.',
-    scope: 'clusters',
-    pickerLabel: 'Which cluster?',
-    pickerHelp:
-      'Membership itself belongs to each server rather than to the cluster, so it is not changed here — this is how the members talk to each other and how they are addressed from outside.',
     groups: [
       {
         key: 'messaging',
@@ -466,10 +464,6 @@ export const CATEGORIES = [
     key: 'data-sources',
     label: 'Data sources',
     blurb: 'Pool sizing, the test that keeps dead connections out, and the database URL.',
-    scope: 'dataSources',
-    pickerLabel: 'Which data source?',
-    pickerHelp:
-      'Pool sizes count per server: a maximum of 20 on a data source targeted to three servers means up to 60 sessions on the database.',
     groups: [
       {
         key: 'pool',
@@ -673,10 +667,6 @@ export const CATEGORIES = [
     key: 'deployments',
     label: 'Deployments',
     blurb: 'Start order, how the archive reaches the servers, and which deployment plan is used.',
-    scope: 'deployments',
-    pickerLabel: 'Which application?',
-    pickerHelp:
-      'These are configuration settings of the deployment. Starting, stopping and redeploying an application is done on the Deployments page.',
     groups: [
       {
         key: 'deployment',
@@ -731,10 +721,6 @@ export const CATEGORIES = [
     key: 'logging',
     label: 'Logging',
     blurb: 'Each server’s log file, its rotation, and how much detail every destination gets.',
-    scope: 'servers',
-    pickerLabel: 'Whose log?',
-    pickerHelp:
-      'Every server writes its own log file on its own machine. The Logs page reads exactly these files, without needing shell access to the host.',
     groups: [
       {
         key: 'file',
@@ -814,7 +800,6 @@ export const CATEGORIES = [
     key: 'domain',
     label: 'Domain',
     blurb: 'Settings that apply to the whole domain, including the domain-wide log.',
-    scope: null,
     groups: [
       {
         key: 'domain',
@@ -886,11 +871,3 @@ export const CATEGORIES = [
 ]
 
 export const categoryByKey = (key) => CATEGORIES.find((c) => c.key === key)
-
-/** The scope name a category picks its item from, or null for domain-wide. */
-export const SCOPE_LABELS = {
-  servers: 'server',
-  clusters: 'cluster',
-  dataSources: 'data source',
-  deployments: 'application',
-}

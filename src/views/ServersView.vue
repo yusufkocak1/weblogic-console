@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
 import { useResource } from '@/composables/useResource'
-import { useUiStore } from '@/stores/ui'
+import { ACTION_DESCRIPTIONS, actionsFor, useServerActions } from '@/composables/useServerActions'
 import { bytes, duration, items, num, targetNames } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
@@ -10,14 +10,15 @@ import StateBadge from '@/components/StateBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 
-const ui = useUiStore()
 const confirm = ref(null)
-const busyServer = ref(null)
 
 const { data, error, refreshing, loading, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [snapshot, configs] = await Promise.all([wls.runtimeSnapshot({ signal }), wls.configuredServers({ signal })])
   return { snapshot, configs }
 })
+
+// The same lifecycle actions are offered on a server's own page.
+const { busy: busyServer, run } = useServerActions({ confirm, onChanged: reload })
 
 const rows = computed(() => {
   const runtimes = new Map(items(data.value?.snapshot?.serverRuntimes).map((r) => [r.name, r]))
@@ -83,63 +84,6 @@ const COLUMNS = [
   },
   { key: 'actions', label: '', sortable: false, align: 'right' },
 ]
-
-/** Which lifecycle operations make sense for a given state. */
-function actionsFor(state) {
-  switch (state) {
-    case 'RUNNING':
-      return [
-        { action: 'suspend', label: 'Suspend' },
-        { action: 'shutdown', label: 'Shutdown', danger: true },
-      ]
-    case 'ADMIN':
-    case 'STANDBY':
-      return [
-        { action: 'resume', label: 'Resume' },
-        { action: 'shutdown', label: 'Shutdown', danger: true },
-      ]
-    case 'SHUTDOWN':
-    case 'FAILED_NOT_RESTARTABLE':
-      return [{ action: 'start', label: 'Start' }]
-    case 'FAILED':
-      return [
-        { action: 'start', label: 'Start' },
-        { action: 'forceShutdown', label: 'Force shutdown', danger: true },
-      ]
-    default:
-      return [{ action: 'forceShutdown', label: 'Force shutdown', danger: true }]
-  }
-}
-
-const DESCRIPTIONS = {
-  start: 'Node Manager must be running on the target machine for a server to start.',
-  shutdown: 'The server stops accepting new work and shuts down gracefully.',
-  forceShutdown: 'The server is killed immediately. In-flight work is lost.',
-  suspend: 'The server moves to ADMIN state and stops serving application traffic.',
-  resume: 'The server returns to RUNNING and resumes serving traffic.',
-}
-
-async function runAction(row, { action, label, danger }) {
-  const ok = await confirm.value.ask({
-    title: `${label} ${row.name}?`,
-    body: DESCRIPTIONS[action] || '',
-    confirmLabel: label,
-    danger: Boolean(danger),
-  })
-  if (!ok) return
-
-  busyServer.value = row.name
-  try {
-    await wls.serverAction(row.name, action)
-    ui.success(`${label} requested`, `${row.name} is transitioning — the state column updates as it changes.`)
-    // Lifecycle changes take a moment to show up in the runtime tree.
-    setTimeout(reload, 1500)
-  } catch (err) {
-    ui.error(`${label} failed on ${row.name}`, err.fullText || err.message)
-  } finally {
-    busyServer.value = null
-  }
-}
 </script>
 
 <template>
@@ -184,7 +128,13 @@ async function runAction(row, { action, label, danger }) {
       @retry="reload"
     >
       <template #cell:name="{ row }">
-        <div class="font-medium text-zinc-900 dark:text-zinc-50">{{ row.name }}</div>
+        <RouterLink
+          :to="{ name: 'server-detail', params: { name: row.name } }"
+          class="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          title="Open this server: runtime detail and every setting it has"
+        >
+          {{ row.name }}
+        </RouterLink>
         <div v-if="row.version" class="text-xs text-zinc-400 dark:text-zinc-500">{{ row.version }}</div>
       </template>
 
@@ -219,9 +169,9 @@ async function runAction(row, { action, label, danger }) {
             v-for="action in actionsFor(row.state)"
             :key="action.action"
             :class="['btn', action.danger ? 'btn-danger' : 'btn-ghost', 'px-2 py-1 text-xs']"
-            :title="DESCRIPTIONS[action.action]"
+            :title="ACTION_DESCRIPTIONS[action.action]"
             :disabled="busyServer === row.name"
-            @click="runAction(row, action)"
+            @click="run(row.name, action)"
           >
             {{ action.label }}
           </button>
