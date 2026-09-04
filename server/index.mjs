@@ -33,7 +33,22 @@ const DIST = fileURLToPath(new URL('../dist', import.meta.url))
 const HOME = process.env.WLC_HOME || path.join(os.homedir(), '.wl-console')
 const PROFILES_FILE = path.join(HOME, 'profiles.json')
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
-const MAX_BODY_BYTES = 32 * 1024 * 1024
+// A JSON API body is tiny; an application archive on its way to the deployment
+// endpoint is not, so the two limits are kept apart.
+const MAX_JSON_BYTES = 2 * 1024 * 1024
+const MAX_UPLOAD_BYTES = Number(process.env.WLC_MAX_UPLOAD_MB || 256) * 1024 * 1024
+/**
+ * Runtime history. The browser polls only while a page is open, so trends are
+ * sampled here instead: every live connection is asked for one compact runtime
+ * snapshot on this interval and the result is kept in a ring buffer. Set
+ * WLC_SAMPLE_MS=0 to turn sampling off completely.
+ */
+const SAMPLE_MS = Number(process.env.WLC_SAMPLE_MS ?? 15_000)
+const HISTORY_MINUTES = Number(process.env.WLC_HISTORY_MINUTES || 120)
+const MAX_SAMPLES = SAMPLE_MS > 0 ? Math.max(2, Math.ceil((HISTORY_MINUTES * 60_000) / SAMPLE_MS)) : 0
+// Sampling follows the browser: a session nobody has touched for this long is
+// left alone, so a console forgotten in a background tab stops polling.
+const SAMPLE_IDLE_MS = 15 * 60_000
 const COOKIE_NAME = 'wlc_session'
 const REST_BASE = '/management/weblogic/latest'
 
@@ -117,13 +132,13 @@ function sendError(res, status, title, detail = '') {
   sendJson(res, status, { status, title, detail })
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_JSON_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
     req.on('data', (chunk) => {
       size += chunk.length
-      if (size > MAX_BODY_BYTES) {
+      if (size > limit) {
         reject(Object.assign(new Error('Request body too large'), { status: 413 }))
         req.destroy()
         return
@@ -279,6 +294,147 @@ function normalizeUpstreamError(err) {
   return Object.assign(new Error(detail), { status: err?.status || 502, code })
 }
 
+// ---------------------------------------------------------------- history
+
+/**
+ * One search that returns every running server's state, heap and thread pool.
+ * Deliberately narrow: this runs on a timer, so it must stay one small request.
+ */
+const SAMPLE_PAYLOAD = JSON.stringify({
+  links: [],
+  fields: [],
+  children: {
+    serverRuntimes: {
+      links: [],
+      fields: ['name', 'state', 'healthState'],
+      children: {
+        JVMRuntime: { links: [], fields: ['heapSizeCurrent', 'heapFreeCurrent', 'heapSizeMax'] },
+        threadPoolRuntime: {
+          links: [],
+          fields: [
+            'executeThreadTotalCount',
+            'executeThreadIdleCount',
+            'standbyThreadCount',
+            'stuckThreadCount',
+            'hoggingThreadCount',
+            'queueLength',
+            'pendingUserRequestCount',
+            'throughput',
+          ],
+        },
+      },
+    },
+  },
+})
+
+/** healthState is an object in current releases and a HEALTH_* string in older ones. */
+function healthLabel(health) {
+  if (!health) return 'UNKNOWN'
+  const raw = typeof health === 'string' ? health : health.state || 'UNKNOWN'
+  return String(raw).replace(/^HEALTH_/, '').toUpperCase()
+}
+
+/**
+ * Keys are short on purpose: one entry is stored per server per interval, and
+ * the whole buffer goes to the browser on every poll.
+ */
+function toSample(payload) {
+  const servers = {}
+  for (const runtime of payload?.serverRuntimes?.items ?? []) {
+    if (!runtime?.name) continue
+    const jvm = runtime.JVMRuntime || {}
+    const pool = runtime.threadPoolRuntime || {}
+    const total = Number(pool.executeThreadTotalCount || 0)
+    servers[runtime.name] = {
+      st: runtime.state || 'UNKNOWN',
+      he: healthLabel(runtime.healthState),
+      hu: Number(jvm.heapSizeCurrent || 0) - Number(jvm.heapFreeCurrent || 0),
+      hm: Number(jvm.heapSizeMax || jvm.heapSizeCurrent || 0),
+      tt: total,
+      tb: Math.max(0, total - Number(pool.executeThreadIdleCount || 0) - Number(pool.standbyThreadCount || 0)),
+      sk: Number(pool.stuckThreadCount || 0),
+      hg: Number(pool.hoggingThreadCount || 0),
+      q: Number(pool.queueLength || 0),
+      pr: Number(pool.pendingUserRequestCount || 0),
+      tp: Number(pool.throughput || 0),
+    }
+  }
+  return { t: Date.now(), servers }
+}
+
+async function sampleConnection(connection) {
+  try {
+    const upstream = await callAdminServer(connection, {
+      method: 'POST',
+      path: REST_BASE + '/domainRuntime/search',
+      body: Buffer.from(SAMPLE_PAYLOAD),
+      headers: { 'Content-Type': 'application/json' },
+      timeoutMs: 20_000,
+    })
+    if (upstream.status >= 400) {
+      connection.historyError = 'The AdminServer answered ' + upstream.status + ' to the sampling request.'
+      return
+    }
+    connection.history.push(toSample(JSON.parse(upstream.body.toString('utf8'))))
+    if (connection.history.length > MAX_SAMPLES) {
+      connection.history.splice(0, connection.history.length - MAX_SAMPLES)
+    }
+    connection.historyError = null
+  } catch (err) {
+    // A domain that is down must not write one console line per interval; the
+    // last reason is reported to the UI instead.
+    connection.historyError = err?.message || 'Sampling failed.'
+  }
+}
+
+/** Live connections whose browser session is still being used, deduplicated. */
+function connectionsToSample() {
+  const seen = new Set()
+  const out = []
+  const cutoff = Date.now() - SAMPLE_IDLE_MS
+  for (const session of sessions.values()) {
+    if (session.lastUsed < cutoff) continue
+    for (const connection of session.connections.values()) {
+      if (seen.has(connection.id)) continue
+      seen.add(connection.id)
+      out.push(connection)
+    }
+  }
+  return out
+}
+
+let sampling = false
+
+function startSampler() {
+  if (!SAMPLE_MS) return
+  setInterval(async () => {
+    // One tick at a time: a slow AdminServer must not stack requests up.
+    if (sampling) return
+    sampling = true
+    try {
+      await Promise.all(connectionsToSample().map(sampleConnection))
+    } finally {
+      sampling = false
+    }
+  }, SAMPLE_MS).unref()
+}
+
+function handleHistory(req, res, url) {
+  const session = sessionFor(req)
+  const connection = resolveConnection(session, req)
+  if (!connection) {
+    return sendError(res, 401, 'Not connected', 'The console session expired. Connect to an AdminServer again.')
+  }
+  const since = Number(url.searchParams.get('since') || 0)
+  sendJson(res, 200, {
+    sampling: SAMPLE_MS > 0,
+    intervalMs: SAMPLE_MS,
+    retentionMs: SAMPLE_MS * MAX_SAMPLES,
+    error: connection.historyError || null,
+    samples: connection.history.filter((sample) => sample.t > since),
+  })
+}
+
 // ---------------------------------------------------------------- connections
 
 /**
@@ -330,6 +486,9 @@ async function handleCreateConnection(req, res) {
     auth: 'Basic ' + Buffer.from(`${username}:${password}`, 'utf8').toString('base64'),
     domain: null,
     connectedAt: Date.now(),
+    /** Ring buffer of runtime samples, filled by the sampler above. */
+    history: [],
+    historyError: null,
   }
 
   let upstream
@@ -478,7 +637,9 @@ async function handleProxy(req, res, restPath) {
     return sendError(res, 401, 'Not connected', 'The console session expired. Connect to an AdminServer again.')
   }
 
-  const body = ['GET', 'HEAD', 'DELETE'].includes(req.method) ? null : await readBody(req)
+  // Deploying an application posts an archive through here, so the proxy gets
+  // the generous limit while the console's own JSON endpoints keep the small one.
+  const body = ['GET', 'HEAD', 'DELETE'].includes(req.method) ? null : await readBody(req, MAX_UPLOAD_BYTES)
   let upstream
   try {
     upstream = await callAdminServer(connection, {
@@ -562,6 +723,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname === '/api/session' && method === 'GET') return handleSession(req, res)
+    if (pathname === '/api/history' && method === 'GET') return handleHistory(req, res, url)
     if (pathname === '/api/connections' && method === 'POST') return await handleCreateConnection(req, res)
     if (pathname === '/api/disconnect' && method === 'POST') return handleDisconnectAll(req, res)
 
@@ -605,5 +767,11 @@ server.on('error', (err) => {
 server.listen(PORT, HOST, () => {
   console.log(`\n  wl-console backend listening on http://${HOST}:${PORT}`)
   console.log(`  ${profiles.length} saved connection profile(s) in ${PROFILES_FILE}`)
+  console.log(
+    SAMPLE_MS
+      ? `  Sampling runtime every ${SAMPLE_MS / 1000}s, keeping ${HISTORY_MINUTES} minutes of history`
+      : '  Runtime sampling is off (WLC_SAMPLE_MS=0) — charts stay empty',
+  )
+  startSampler()
   console.log('  Open that address in a browser and connect to an AdminServer.\n')
 })

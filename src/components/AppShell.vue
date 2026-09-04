@@ -1,13 +1,22 @@
 <script setup>
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore, REFRESH_OPTIONS } from '@/stores/ui'
+import { useHistoryStore } from '@/stores/history'
+import { useAlertsStore } from '@/stores/alerts'
 import ConnectionSwitcher from '@/components/ConnectionSwitcher.vue'
+import CommandPalette from '@/components/CommandPalette.vue'
+import AlertsMenu from '@/components/AlertsMenu.vue'
 import InfoTip from '@/components/InfoTip.vue'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
+const history = useHistoryStore()
+const alerts = useAlertsStore()
 const router = useRouter()
+
+const palette = ref(null)
 
 const NAV = [
   {
@@ -47,6 +56,12 @@ const NAV = [
     icon: 'M3 6h18v12H3V6Zm0 1.5 9 6 9-6',
   },
   {
+    name: 'transactions',
+    label: 'Transactions',
+    hint: 'JTA totals and work managers: commits, rollbacks, timeouts and the queues behind them.',
+    icon: 'M4 7h13l-3-3m3 3-3 3M20 17H7l3-3m-3 3 3 3',
+  },
+  {
     name: 'monitoring',
     label: 'Monitoring',
     hint: 'Per-server JVM heap and thread pool detail — the page to open when something feels slow.',
@@ -57,6 +72,18 @@ const NAV = [
     label: 'Logs',
     hint: 'Search server logs by severity, time window and message text, without shell access to the machine.',
     icon: 'M8 4h9l3 3v13H8V4Zm0 0H5v16h3M11 9h6M11 13h6M11 17h4',
+  },
+  {
+    name: 'security',
+    label: 'Security',
+    hint: 'The security realm: which providers authenticate, and the users and groups they hold.',
+    icon: 'M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3Z',
+  },
+  {
+    name: 'compare',
+    label: 'Compare',
+    hint: 'Two open domains side by side: what test has that production does not, and where the two have drifted.',
+    icon: 'M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M12 3v18',
   },
   {
     name: 'explorer',
@@ -71,6 +98,23 @@ async function disconnectAll() {
   await connection.disconnectAll()
   router.push({ name: 'login' })
 }
+
+/**
+ * The background watcher. It runs here rather than on the dashboard so that a
+ * server going down is noticed while you are reading logs on another page — and
+ * it follows the active connection, because the alerts belong to one domain.
+ */
+onMounted(() => history.start(connection.activeId))
+onBeforeUnmount(() => history.stop())
+
+watch(
+  () => connection.activeId,
+  (id, previous) => {
+    if (id === previous) return
+    alerts.reset()
+    history.start(id)
+  },
+)
 </script>
 
 <template>
@@ -158,6 +202,21 @@ async function disconnectAll() {
         </span>
 
         <div class="ml-auto flex items-center gap-2">
+          <button
+            class="btn btn-ghost hidden sm:inline-flex"
+            title="Search this domain: any page, server, cluster, data source or application — Ctrl-K from anywhere"
+            aria-label="Search pages and objects"
+            @click="palette?.show()"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <kbd class="rounded border border-zinc-300 px-1 text-[10px] text-zinc-400 dark:border-zinc-700">Ctrl K</kbd>
+          </button>
+
+          <AlertsMenu />
+
           <label
             class="hidden items-center gap-1.5 text-xs text-zinc-500 sm:flex dark:text-zinc-400"
             title="How often pages re-fetch data from the AdminServer. Set it to Off on a busy domain and use the Refresh button instead."
@@ -218,5 +277,7 @@ async function disconnectAll() {
         </RouterView>
       </main>
     </div>
+
+    <CommandPalette ref="palette" :nav="NAV" />
   </div>
 </template>

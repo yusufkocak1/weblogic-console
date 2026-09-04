@@ -69,7 +69,7 @@ function describeError(status, payload, path) {
   return new WlsError(title, { status, detail, messages, path })
 }
 
-async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, headers = {} } = {}) {
+async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, headers = {}, form } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new WlsError('Request timed out', { path: url })), timeoutMs)
   if (signal) {
@@ -83,10 +83,12 @@ async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, head
       method,
       headers: {
         Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        // A multipart upload must set no Content-Type at all: the browser adds
+        // one with the boundary, and overriding it makes the body unparseable.
+        ...(body === undefined || form ? {} : { 'Content-Type': 'application/json' }),
         ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: form ? body : body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -114,19 +116,30 @@ async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, head
 
 // --- WebLogic REST (proxied) -------------------------------------------------
 
-export const request = (path, options = {}) =>
-  send(buildUrl(WLS_BASE, path, options.params), {
+export const request = (path, options = {}) => {
+  // `connectionId` lets one call go to a domain other than the active one —
+  // the Compare page reads two domains side by side that way.
+  const target = options.connectionId || activeConnectionId
+  return send(buildUrl(WLS_BASE, path, options.params), {
     ...options,
     headers: {
-      ...(activeConnectionId ? { 'X-Connection-Id': activeConnectionId } : {}),
+      ...(target ? { 'X-Connection-Id': target } : {}),
       ...options.headers,
     },
   })
+}
 
 export const get = (path, params, options) => request(path, { ...options, params })
 export const post = (path, body, options) => request(path, { ...options, method: 'POST', body: body ?? {} })
 export const put = (path, body, options) => request(path, { ...options, method: 'PUT', body: body ?? {} })
 export const del = (path, options) => request(path, { ...options, method: 'DELETE' })
+
+/**
+ * Multipart POST — how WebLogic takes an application archive. The body is a
+ * FormData, so it is sent as-is and the browser writes the Content-Type.
+ */
+export const postForm = (path, formData, options = {}) =>
+  request(path, { ...options, method: 'POST', body: formData, form: true, timeoutMs: options.timeoutMs ?? 600000 })
 
 /**
  * The bulk-read endpoint every tree exposes. One POST returns a whole subtree,
@@ -138,6 +151,19 @@ export const search = (tree, payload, options) => post(`/${tree}/search`, payloa
 // Each of these returns the full session state: connections plus saved profiles.
 
 export const session = () => send(`${API_BASE}/session`, { timeoutMs: 10000 })
+
+/**
+ * Runtime samples the backend has collected for a connection. `since` is the
+ * newest timestamp already held, so a poll carries back only what is new.
+ */
+export const history = (since = 0, options = {}) => {
+  const target = options.connectionId || activeConnectionId
+  return send(buildUrl(API_BASE, '/history', { since: since || undefined }), {
+    ...options,
+    timeoutMs: options.timeoutMs ?? 15000,
+    headers: target ? { 'X-Connection-Id': target } : {},
+  })
+}
 
 export const openConnection = (credentials) =>
   send(`${API_BASE}/connections`, { method: 'POST', body: credentials, timeoutMs: 30000 })

@@ -1,4 +1,5 @@
-import { get, post, search } from './client'
+import { del, get, post, postForm, search } from './client'
+import { items } from '@/utils/format'
 
 const SERVER_RUNTIME_FIELDS = [
   'name',
@@ -418,4 +419,239 @@ export function availableLogs(server, requestOptions) {
     `/domainRuntime/serverRuntimes/${encodeURIComponent(server)}` +
     `/WLDFRuntime/WLDFAccessRuntime/WLDFDataAccessRuntimes`
   return get(path, { links: 'none', fields: 'name' }, requestOptions)
+}
+
+// --- transactions and work managers -----------------------------------------
+
+/**
+ * JTA and work manager runtime for every running server.
+ *
+ * No `fields` filter here: these MBeans gained and lost attributes between
+ * releases, and naming one a release does not have fails the whole search.
+ * They are small, so fetching them whole is the safe trade.
+ */
+export function transactionRuntimes(options) {
+  return search(
+    'domainRuntime',
+    {
+      links: [],
+      fields: [],
+      children: {
+        serverRuntimes: {
+          links: [],
+          fields: ['name', 'state'],
+          children: {
+            JTARuntime: { links: [] },
+            workManagerRuntimes: { links: [] },
+          },
+        },
+      },
+    },
+    options,
+  )
+}
+
+// --- messaging infrastructure ------------------------------------------------
+
+/**
+ * What JMS runs on: the stores that hold persistent messages, the SAF agents
+ * that forward them between domains, and the bridges that link them to other
+ * providers. Fetched separately from the JMS counters so an older release that
+ * lacks one of these trees still renders the rest of the page.
+ */
+export function messagingRuntimes(options) {
+  return search(
+    'domainRuntime',
+    {
+      links: [],
+      fields: [],
+      children: {
+        serverRuntimes: {
+          links: [],
+          fields: ['name'],
+          children: {
+            persistentStoreRuntimes: { links: [] },
+            SAFRuntime: { links: [], children: { agents: { links: [] } } },
+            messagingBridgeRuntimes: { links: [] },
+          },
+        },
+      },
+    },
+    options,
+  )
+}
+
+// --- deployment --------------------------------------------------------------
+
+/**
+ * Installs a new application. WebLogic takes the archive as multipart form
+ * data: a `model` part naming and targeting the deployment, a `deployment`
+ * part holding the file, and optionally a `plan` part.
+ *
+ * The upload lands in the pending configuration like any other edit, so the
+ * caller still has to activate it.
+ */
+export function deployApplication(formData, options) {
+  return postForm('/edit/appDeployments', formData, options)
+}
+
+/** Replaces the archive of a deployment that already exists. */
+export function redeployApplication(name, formData, options) {
+  return postForm(`/edit/appDeployments/${encodeURIComponent(name)}`, formData, options)
+}
+
+/** Removes the deployment from the domain configuration entirely. */
+export function undeployApplication(name, options) {
+  return del(`/edit/appDeployments/${encodeURIComponent(name)}`, options)
+}
+
+/** The same three operations for a shared library. */
+export function deployLibrary(formData, options) {
+  return postForm('/edit/libraries', formData, options)
+}
+
+export function undeployLibrary(name, options) {
+  return del(`/edit/libraries/${encodeURIComponent(name)}`, options)
+}
+
+/**
+ * Builds the multipart body WebLogic expects.
+ *
+ * @param {{file: File, model: object, plan?: File}} parts
+ */
+export function deploymentForm({ file, model, plan }) {
+  const form = new FormData()
+  // The model part must be typed as JSON or WebLogic reads it as a plain file.
+  form.append('model', new Blob([JSON.stringify(model)], { type: 'application/json' }))
+  if (file) form.append('deployment', file, file.name)
+  if (plan) form.append('plan', plan, plan.name)
+  return form
+}
+
+// --- targeting ---------------------------------------------------------------
+
+/** The servers and clusters a resource can be targeted to. */
+export function targetChoices(options) {
+  return Promise.all([
+    get('/domainConfig/servers', { links: 'none', fields: 'name,cluster' }, options),
+    get('/domainConfig/clusters', { links: 'none', fields: 'name' }, options),
+  ]).then(([servers, clusters]) => ({ servers, clusters }))
+}
+
+// --- security realm ----------------------------------------------------------
+
+/** The realm in force, and the providers it authenticates against. */
+export async function securityRealm(options) {
+  const configuration = await get('/edit/securityConfiguration', { links: 'none' }, options)
+  const identity = configuration?.defaultRealm?.identity || configuration?.defaultRealm
+  const realm = Array.isArray(identity) ? identity[identity.length - 1] : String(identity || 'myrealm')
+  const providers = await get(
+    `/edit/securityConfiguration/realms/${encodeURIComponent(realm)}/authenticationProviders`,
+    { links: 'none', fields: 'name,description,controlFlag,type' },
+    options,
+  ).catch(() => null)
+  return { realm, configuration, providers }
+}
+
+/**
+ * Users or groups from one authentication provider.
+ *
+ * Releases disagree about how these are exposed: newer ones have them as a
+ * collection, older ones only as a `listUsers` / `listGroups` action. Both are
+ * tried, and `null` means this release exposes neither — which the page says
+ * plainly rather than showing an empty table that looks like "no users".
+ */
+export async function realmPrincipals(realm, provider, kind, options) {
+  const base =
+    `/edit/securityConfiguration/realms/${encodeURIComponent(realm)}` +
+    `/authenticationProviders/${encodeURIComponent(provider)}`
+  const collection = kind === 'users' ? 'users' : 'groups'
+
+  try {
+    const result = await get(`${base}/${collection}`, { links: 'none' }, options)
+    return normalisePrincipals(result)
+  } catch (err) {
+    if (err?.name === 'AbortError' || err?.isAuthError) throw err
+  }
+
+  try {
+    const action = kind === 'users' ? 'listUsers' : 'listGroups'
+    const result = await post(`${base}/${action}`, { filter: '*', maxToReturn: 1000 }, options)
+    return normalisePrincipals(result?.return ?? result)
+  } catch (err) {
+    if (err?.name === 'AbortError' || err?.isAuthError) throw err
+    return null
+  }
+}
+
+/** Both shapes reduce to [{name, description}]. */
+function normalisePrincipals(result) {
+  const list = items(result).length ? items(result) : Array.isArray(result) ? result : []
+  return list
+    .map((entry) => (typeof entry === 'string' ? { name: entry, description: '' } : entry))
+    .filter((entry) => entry?.name)
+    .map((entry) => ({ name: entry.name, description: entry.description || '' }))
+}
+
+// --- domain comparison -------------------------------------------------------
+
+/**
+ * Everything the Compare page reads from one domain, in a single request.
+ * Attributes are named explicitly so the two sides are always compared on the
+ * same set, whatever else a release happens to expose.
+ */
+export function configSnapshot(options) {
+  return search(
+    'domainConfig',
+    {
+      links: [],
+      fields: ['name', 'productionModeEnabled', 'configurationVersion', 'administrationPort', 'adminServerName'],
+      children: {
+        servers: {
+          links: [],
+          fields: [
+            'name',
+            'listenAddress',
+            'listenPort',
+            'listenPortEnabled',
+            'cluster',
+            'machine',
+            'autoRestart',
+            'restartMax',
+            'stuckThreadMaxTime',
+            'maxMessageSize',
+          ],
+        },
+        clusters: {
+          links: [],
+          fields: ['name', 'clusterMessagingMode', 'clusterAddress', 'servers', 'multicastAddress', 'multicastPort'],
+        },
+        appDeployments: {
+          links: [],
+          fields: ['name', 'sourcePath', 'targets', 'stagingMode', 'moduleType', 'deploymentOrder'],
+        },
+        libraries: { links: [], fields: ['name', 'sourcePath', 'targets'] },
+        machines: { links: [], fields: ['name'] },
+        JDBCSystemResources: {
+          links: [],
+          fields: ['name', 'targets'],
+          children: {
+            JDBCResource: {
+              links: [],
+              fields: ['name'],
+              children: {
+                JDBCDriverParams: { links: [], fields: ['url', 'driverName'] },
+                JDBCDataSourceParams: { links: [], fields: ['JNDINames', 'globalTransactionsProtocol'] },
+                JDBCConnectionPoolParams: {
+                  links: [],
+                  fields: ['initialCapacity', 'maxCapacity', 'minCapacity', 'testTableName', 'testConnectionsOnReserve'],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    options,
+  )
 }

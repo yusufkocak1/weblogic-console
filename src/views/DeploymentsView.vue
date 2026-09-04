@@ -1,18 +1,29 @@
 <script setup>
 import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
+import * as config from '@/api/config'
 import { useResource } from '@/composables/useResource'
+import { useChangesStore } from '@/stores/changes'
+import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
 import { baseAppName, healthOf, items, targetNames } from '@/utils/format'
+import { curlFor, curlForDeploymentAction, wlstForDeploymentAction, wlstForUndeploy } from '@/utils/wlst'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
+import DeployDialog from '@/components/DeployDialog.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 
 const ui = useUiStore()
+const changes = useChangesStore()
+const connection = useConnectionStore()
 const confirm = ref(null)
+const deployDialog = ref(null)
 const busyApp = ref(null)
+const selected = ref([])
+
+const scriptContext = () => ({ username: connection.username, baseUrl: connection.baseUrl })
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [configs, runtimes, libs] = await Promise.all([
@@ -145,6 +156,11 @@ async function runAction(row, action) {
         : 'Clients will stop being served by this application on all its targets.',
     confirmLabel: label,
     danger: action === 'stop',
+    script: {
+      subtitle: `${label} ${row.name}`,
+      wlst: wlstForDeploymentAction(row.name, action, row.targetList, scriptContext()),
+      curl: curlForDeploymentAction(row.name, action, row.targetList, scriptContext()),
+    },
   })
   if (!ok) return
 
@@ -159,6 +175,83 @@ async function runAction(row, action) {
     busyApp.value = null
   }
 }
+
+/** Start or stop every ticked application, one after another. */
+async function runBulk(action) {
+  const chosen = rows.value.filter((row) => selected.value.includes(row.name))
+  if (!chosen.length) return
+  const label = action === 'start' ? 'Start' : 'Stop'
+  const ok = await confirm.value.ask({
+    title: `${label} ${chosen.length} application${chosen.length === 1 ? '' : 's'}?`,
+    body: `${chosen.map((row) => row.name).join(', ')}. ${
+      action === 'stop'
+        ? 'Clients stop being served by each of them on all of their targets.'
+        : 'Each is put back into service on its own targets.'
+    }`,
+    confirmLabel: `${label} ${chosen.length}`,
+    danger: action === 'stop',
+  })
+  if (!ok) return
+
+  const failures = []
+  for (const row of chosen) {
+    busyApp.value = row.name
+    try {
+      await wls.deploymentAction(row.name, action, row.targetList)
+    } catch (err) {
+      failures.push(`${row.name}: ${err.fullText || err.message}`)
+    }
+  }
+  busyApp.value = null
+  selected.value = []
+
+  const done = chosen.length - failures.length
+  if (done) ui.success(`${label} requested for ${done}`, 'States refresh shortly.')
+  if (failures.length) ui.error(`${label} failed for ${failures.length}`, failures.join(' · '))
+  setTimeout(reload, 1500)
+}
+
+/**
+ * Removing an application from the domain altogether. This is a configuration
+ * change, not a lifecycle one, so it takes the lock, deletes the deployment and
+ * activates — and it is not undoable from here, which the dialog says.
+ */
+async function undeploy(row) {
+  const ok = await confirm.value.ask({
+    title: `Undeploy ${row.name}?`,
+    body: `The application is removed from the domain configuration and stops being served on ${row.targets}. Putting it back means deploying the archive again.`,
+    confirmLabel: 'Undeploy',
+    danger: true,
+    script: {
+      subtitle: `Undeploy ${row.name}`,
+      wlst: wlstForUndeploy(row.name, row.targetList, scriptContext()),
+      curl: curlFor('DELETE', `/edit/appDeployments/${encodeURIComponent(row.name)}`, undefined, scriptContext()),
+    },
+  })
+  if (!ok) return
+
+  busyApp.value = row.name
+  try {
+    await changes.refresh()
+    if (changes.locked && changes.lockOwner && changes.lockOwner !== connection.username) {
+      throw new Error(`${changes.lockOwner} holds the configuration lock.`)
+    }
+    if (!changes.locked) await config.startEdit()
+    await wls.undeployApplication(row.name)
+    await changes.activate()
+    ui.success('Undeployed', `${row.name} has been removed from the domain.`)
+    reload()
+  } catch (err) {
+    ui.error(`Could not undeploy ${row.name}`, err.fullText || err.message)
+    await changes.discard().catch(() => {})
+  } finally {
+    busyApp.value = null
+  }
+}
+
+function redeploy(row) {
+  deployDialog.value.show({ mode: 'redeploy', name: row.name, stagingMode: row.staging, targets: row.targetList })
+}
 </script>
 
 <template>
@@ -168,9 +261,19 @@ async function runAction(row, action) {
       subtitle="Applications and shared libraries in this domain"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="Applications already deployed to this domain, and the shared libraries they can reference. You can start and stop deployments here; installing a new one still needs WLST or the classic console."
+      help="Every application deployed to this domain and the shared libraries they reference. Install a new archive, replace one that is already there, start and stop them, or remove them entirely."
       @refresh="reload"
-    />
+    >
+      <template #actions>
+        <button
+          class="btn btn-primary"
+          title="Upload a WAR, EAR or JAR and install it in this domain"
+          @click="deployDialog.show({ mode: 'deploy' })"
+        >
+          Deploy
+        </button>
+      </template>
+    </PageHeader>
 
     <HelpPanel id="deployments" title="How to stop and restart an application">
       <ol class="list-decimal space-y-1 pl-4">
@@ -188,18 +291,36 @@ async function runAction(row, action) {
         An application that shows <em>Not active</em> is deployed but running nowhere — check that its target servers
         are up on the Servers page before assuming the deployment is broken.
       </p>
+      <p>
+        <strong>Deploy</strong> uploads a new archive and installs it. <strong>Redeploy</strong> replaces the archive
+        of one already there, keeping its name and targets — that is how a new build goes out.
+        <strong>Undeploy</strong> removes it from the domain altogether. All three are staged as configuration
+        changes and activated, so a failed upload leaves the domain exactly as it was.
+      </p>
     </HelpPanel>
 
     <DataTable
+      v-model:selected="selected"
       :columns="COLUMNS"
       :rows="rows"
       :loading="loading"
       :error="error && !data ? error : null"
+      state-key="main"
+      export-name="deployments"
+      selectable
       empty-text="Nothing is deployed to this domain."
       search-placeholder="Filter applications…"
       search-hint="Matches the application name, type, targets and staging mode of the rows already loaded."
       @retry="reload"
     >
+      <template #toolbar>
+        <div v-if="selected.length" class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ selected.length }} selected</span>
+          <button class="btn btn-ghost px-2 py-1 text-xs" @click="runBulk('start')">Start</button>
+          <button class="btn btn-danger px-2 py-1 text-xs" @click="runBulk('stop')">Stop</button>
+          <button class="btn btn-ghost px-2 py-1 text-xs" @click="selected = []">Clear</button>
+        </div>
+      </template>
       <template #cell:name="{ row }">
         <RouterLink
           :to="{ name: 'deployment-detail', params: { name: row.name } }"
@@ -246,6 +367,22 @@ async function runAction(row, action) {
           >
             Stop
           </button>
+          <button
+            class="btn btn-ghost px-2 py-1 text-xs"
+            title="Upload a new archive over this deployment, keeping its name and targets"
+            :disabled="busyApp === row.name"
+            @click="redeploy(row)"
+          >
+            Redeploy
+          </button>
+          <button
+            class="btn btn-danger px-2 py-1 text-xs"
+            title="Remove this application from the domain configuration entirely"
+            :disabled="busyApp === row.name"
+            @click="undeploy(row)"
+          >
+            Undeploy
+          </button>
         </div>
       </template>
     </DataTable>
@@ -257,7 +394,7 @@ async function runAction(row, action) {
           — code that applications reference instead of bundling; they have no lifecycle buttons of their own
         </span>
       </h2>
-      <DataTable :columns="LIB_COLUMNS" :rows="libraries" :searchable="false" dense>
+      <DataTable :columns="LIB_COLUMNS" :rows="libraries" :searchable="false" export-name="libraries" dense>
         <template #cell:sourcePath="{ row }">
           <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ row.sourcePath }}</span>
         </template>
@@ -265,5 +402,6 @@ async function runAction(row, action) {
     </template>
 
     <ConfirmDialog ref="confirm" />
+    <DeployDialog ref="deployDialog" @deployed="reload" />
   </div>
 </template>

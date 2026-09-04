@@ -6,10 +6,12 @@ import { IMPACTS, categoryByKey } from '@/settings/catalog'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
+import { curlForEdits, wlstForEdits } from '@/utils/wlst'
 import HelpPanel from '@/components/HelpPanel.vue'
 import PendingChanges from '@/components/PendingChanges.vue'
 import SettingField from '@/components/SettingField.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import SnippetDialog from '@/components/SnippetDialog.vue'
 
 /**
  * The editable settings of one object, on that object's own page.
@@ -35,6 +37,7 @@ const connection = useConnectionStore()
 const changes = useChangesStore()
 
 const confirm = ref(null)
+const snippet = ref(null)
 
 /** One entry per catalog group: what the AdminServer holds and what is typed. */
 const groups = ref([])
@@ -165,6 +168,23 @@ function revert() {
   for (const group of groups.value) group.draft = { ...group.values }
 }
 
+/**
+ * The pending edits as a script. Useful before pressing the button on a
+ * production domain, and useful afterwards as the record of what was changed.
+ */
+const scriptFor = () => {
+  const context = { username: connection.username, baseUrl: connection.baseUrl }
+  return {
+    subtitle: changedFields.value.map((field) => `${field.label}: ${field.from ?? '(empty)'} → ${field.to ?? '(empty)'}`).join(' · '),
+    wlst: wlstForEdits(edits.value, context),
+    curl: curlForEdits(edits.value, context),
+  }
+}
+
+function showScript() {
+  snippet.value.show({ title: 'These changes as a script', ...scriptFor() })
+}
+
 // -------------------------------------------------------------- navigation
 
 /** Leaving with unsaved edits is nearly always a mistake, so it is confirmed. */
@@ -217,6 +237,7 @@ async function save({ activate }) {
         (connection.productionMode ? ' This domain runs in production mode.' : ''),
       confirmLabel: 'Save and activate',
       danger: connection.productionMode,
+      script: scriptFor(),
     })
     if (!ok) return
   }
@@ -345,6 +366,11 @@ load()
         WebLogic allows one editor per domain at a time. While you hold that lock nobody else can change the
         configuration, so activate or discard rather than leaving edits open.
       </p>
+      <p>
+        <strong>Show script</strong> writes the pending edits out as WLST and as the REST calls this console makes —
+        worth a glance before changing a production domain, and worth keeping afterwards as the record of what was
+        changed.
+      </p>
     </HelpPanel>
 
     <PendingChanges @activate="activatePending" @discard="discardPending" />
@@ -413,6 +439,14 @@ load()
             <button
               class="btn btn-ghost"
               :disabled="saving"
+              title="Show these edits as a WLST script and as the REST calls the console makes — to check before saving, or to keep as a record"
+              @click="showScript"
+            >
+              Show script
+            </button>
+            <button
+              class="btn btn-ghost"
+              :disabled="saving"
               title="Put every field back to the value the AdminServer holds."
               @click="revert"
             >
@@ -440,5 +474,6 @@ load()
     </Transition>
 
     <ConfirmDialog ref="confirm" />
+    <SnippetDialog ref="snippet" />
   </section>
 </template>

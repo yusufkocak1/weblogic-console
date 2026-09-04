@@ -39,9 +39,9 @@ shared ops machine, or a container.
 Everything the console needs is already exposed by WebLogic's REST management
 API. `wl-console` is a small Vue front end over that API plus a thin local
 process to hold the connection. It stays deliberately narrow: **read the domain,
-watch the runtime, drive lifecycle operations, and change the settings you
-actually change day to day.** Creating and deleting objects is still WLST or
-Remote Console work.
+watch the runtime, drive lifecycle operations, deploy applications, and change
+the settings you actually change day to day.** Creating servers and clusters, or
+editing the security realm, is still WLST or Remote Console work.
 
 ## Quick start
 
@@ -123,12 +123,15 @@ leaves nothing behind.
 
 All configuration is environment variables — there is no config file to manage.
 
-| Variable           | Default                 | Purpose                                        |
-| ------------------ | ----------------------- | ---------------------------------------------- |
-| `WLC_PORT`         | `7101`                  | Port the local console listens on               |
-| `WLC_HOST`         | `127.0.0.1`             | Bind address — loopback on purpose              |
-| `WLC_HOME`         | `~/.wl-console`         | Directory holding `profiles.json`               |
-| `VITE_BACKEND_URL` | `http://127.0.0.1:7101` | Where Vite proxies `/api` during development    |
+| Variable              | Default                 | Purpose                                                        |
+| --------------------- | ----------------------- | -------------------------------------------------------------- |
+| `WLC_PORT`            | `7101`                  | Port the local console listens on                               |
+| `WLC_HOST`            | `127.0.0.1`             | Bind address — loopback on purpose                              |
+| `WLC_HOME`            | `~/.wl-console`         | Directory holding `profiles.json`                               |
+| `WLC_SAMPLE_MS`       | `15000`                 | How often runtime is sampled for charts and alerts; `0` is off  |
+| `WLC_HISTORY_MINUTES` | `120`                   | How much of that history is kept in memory                      |
+| `WLC_MAX_UPLOAD_MB`   | `256`                   | Largest application archive the deployment proxy will forward   |
+| `VITE_BACKEND_URL`    | `http://127.0.0.1:7101` | Where Vite proxies `/api` during development                    |
 
 ```bash
 WLC_PORT=8080 npm start          # run somewhere else
@@ -173,31 +176,58 @@ use it to fetch every server's runtime in a **single round trip** instead of one
 request per MBean. See `runtimeSnapshot()` in
 [`src/api/weblogic.js`](src/api/weblogic.js) for the pattern.
 
+### Runtime history
+
+The browser only polls while a page is open, which is no use for a chart or for
+noticing that a server went down ten minutes ago. So the backend samples each
+live connection itself — one small `search` every `WLC_SAMPLE_MS` — and keeps
+`WLC_HISTORY_MINUTES` of it in a ring buffer per connection. That buffer feeds
+the sparklines and the alert rules, and it never touches the disk: it dies with
+the process, like the credentials do.
+
+Sampling follows the browser rather than running forever. A session nobody has
+touched for fifteen minutes is skipped, so a console left open in a background
+tab overnight stops asking the AdminServer anything at all.
+
+### Deploying an archive
+
+An upload goes browser → console process → AdminServer as multipart form data,
+so the archive never has to exist on the AdminServer's own disk. The console
+takes the configuration lock, posts the archive, and activates; if anything
+fails the edit session is discarded, and the domain is left exactly as it was.
+
 ## Project layout
 
 ```
-server/index.mjs            connections, profiles, REST proxy, static serving
+server/index.mjs            connections, profiles, REST proxy, runtime sampler, static serving
 scripts/dev.mjs             runs backend + Vite together
 src/
   api/
     client.js               fetch wrapper for the local backend, error shaping
     weblogic.js             one function per WebLogic endpoint / search payload
-    config.js               the `edit` tree: read, write, lock, activate
+    config.js               the `edit` tree: read, write, lock, activate, targeting
   stores/
     connection.js           live connections, saved profiles, active target
     ui.js                   theme, refresh interval, hint visibility, toasts
     changes.js              the domain's configuration lock and pending changes
+    history.js              the browser's copy of the sampled runtime history
+    alerts.js               the threshold rules, and what they have raised
   composables/
     useResource.js          load + auto-refresh + abort + reload on domain switch
     useReconnect.js         password prompt for bringing a saved profile back
-    useServerActions.js     start/suspend/resume/shutdown, shared by list and page
+    useServerActions.js     start/suspend/resume/shutdown, single and in bulk
+    useUrlState.js          keeps filters and sorting in the page's address
   settings/
     catalog.js              every editable setting: plain name, help, when it applies
-  components/               AppShell, DataTable, StateBadge, MeterBar,
-                            InfoTip and HelpPanel (the in-app help), …
+  components/               AppShell, DataTable, CommandPalette, AlertsMenu,
+                            SparkLine, TargetPicker, DeployDialog, SnippetDialog,
+                            StateBadge, MeterBar, InfoTip, HelpPanel, …
   views/                    one view per console section
   utils/format.js           bytes, durations, health/target normalisation
   utils/target.js           parses t3:// and host:port addresses into fields
+  utils/wlst.js             the same operation written out as WLST and as curl
+  utils/export.js           CSV and JSON downloads of whatever a table is showing
+  utils/title.js            the tab title, shared by the router and the alert badge
 ```
 
 The backend depends on nothing but Node's standard library. The front end
@@ -210,11 +240,14 @@ depends on Vue, Vue Router, Pinia and Tailwind — nothing else at runtime.
 | **Dashboard**     | Domain summary, per-server cards with state, heap, threads, uptime; a banner for running-but-unhealthy servers | `domainRuntime/search`, `domainConfig/servers`                      |
 | **Servers**       | Configured + runtime view per server; start, suspend, resume, shutdown, force shutdown | `serverLifeCycleRuntimes` + actions                                 |
 | **Clusters**      | Membership, alive counts, replication primaries/secondaries, resend counts     | `clusterRuntime` per member server                                  |
-| **Deployments**   | Applications and shared libraries, targets, staging mode, per-server health; start and stop | `appDeployments`, `applicationRuntimes`, `deploymentManager`         |
+| **Deployments**   | Applications and shared libraries, targets, staging mode, per-server health; deploy an archive, redeploy, start, stop, undeploy | `appDeployments`, `applicationRuntimes`, `deploymentManager`         |
 | **Data Sources**  | JDBC URL, driver, JNDI names, pool capacity; live active/waiting/failure counts and a connection test | `JDBCSystemResources`, `JDBCDataSourceRuntimeMBeans`, `testPool`     |
-| **JMS**           | JMS servers and destinations: current, pending, high and received message counts, consumers, bytes | `JMSRuntime/JMSServers` + `destinations`                            |
-| **Monitoring**    | Per-server JVM heap, committed size, uptime, Java version; thread pool busy/idle, hogging, **stuck**, queue depth, throughput | `JVMRuntime`, `threadPoolRuntime`                                   |
-| **Logs**          | Server log records with minimum-severity filter, message search, time window   | WLDF data accessor (`search`, with cursor fallback)                 |
+| **JMS**           | JMS servers and destinations with message counts and consumers, plus the persistent stores, SAF agents and bridges underneath them | `JMSRuntime`, `persistentStoreRuntimes`, `SAFRuntime`, `messagingBridgeRuntimes` |
+| **Transactions**  | JTA totals per server — commits, rollbacks and why they rolled back, heuristics, average duration — and work manager queues | `JTARuntime`, `workManagerRuntimes`                                 |
+| **Monitoring**    | Per-server JVM heap, committed size, uptime, Java version; thread pool busy/idle, hogging, **stuck**, queue depth, throughput, each with its recent history | `JVMRuntime`, `threadPoolRuntime`                                   |
+| **Logs**          | Server log records with minimum-severity filter, message search, time window; the filters live in the URL | WLDF data accessor (`search`, with cursor fallback)                 |
+| **Security**      | The realm, its authentication providers in the order they are consulted, and the users and groups they hold — read-only | `securityConfiguration/realms/…`                                    |
+| **Compare**       | Two open domains side by side: what exists on one side only, and every attribute that differs | `domainConfig/search` against both connections                      |
 | **REST Explorer** | Any endpoint of the management API, with bookmarks and pretty-printed JSON     | anything                                                            |
 | **Connections**   | Saved domains and open sessions: switch, rename, close, forget                 | local, no WebLogic call                                             |
 
@@ -227,13 +260,36 @@ where you were already looking at it.
 | ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | **A server**        | Listen address and ports, SSL port, start-up mode and auto-restart, graceful shutdown, stuck-thread thresholds, message size, JVM arguments Node Manager starts it with — plus its log file, rotation and per-destination severities | `edit/servers/{name}`, `/SSL`, `/serverStart`, `/log`               |
 | **A cluster**       | Unicast or multicast messaging, cluster address, load-balancing algorithm, front-end host and ports | `edit/clusters/{name}`                                              |
-| **A data source**   | Pool minimum/maximum/increment, reserve and inactive timeouts, connection testing, statement cache, transaction protocol, database URL and driver | `edit/JDBCSystemResources/{name}/JDBCResource/…`                    |
-| **An application**  | Deployment order, staging mode, deployment plan                               | `edit/appDeployments/{name}`                                        |
+| **A data source**   | Pool minimum/maximum/increment, reserve and inactive timeouts, connection testing, statement cache, transaction protocol, database URL and driver — and which servers and clusters it is targeted to | `edit/JDBCSystemResources/{name}`, `/JDBCResource/…`                |
+| **An application**  | Deployment order, staging mode, deployment plan, and the servers and clusters it is deployed to | `edit/appDeployments/{name}`                                        |
 | **Domain settings** | Administration port, configuration auditing, the classic console, the domain-wide log — reached from the Dashboard | `edit`, `edit/log`                                                  |
 
 Across every page:
 
 - **Several domains open at once**, with instant switching from the sidebar.
+- **It watches while you are not looking.** The console process samples every
+  live connection in the background, so a server leaving RUNNING, a heap past
+  90%, a stuck thread or a queue that will not drain raises an alert on
+  whichever page you are on — with a bell in the top bar, and optionally a
+  desktop notification and a count in the tab title. Every threshold is yours to
+  set, and each condition is reported once when it starts and once when it
+  clears, not on every poll.
+- **Recent history, not just the current reading.** The same samples draw a
+  sparkline under each heap and thread-pool bar. A heap that sawtooths is
+  healthy garbage collection; one that climbs in steps is a leak, and that is
+  visible the moment the page opens.
+- **Ctrl-K goes anywhere.** One box holding every page and every server,
+  cluster, data source and application in the domain — three keystrokes instead
+  of a page load, a filter and a click.
+- **Linkable views.** Table filters, sorting and the whole Logs query live in
+  the page's address, so a search can go in a ticket, survives a reload, and
+  steps back with the browser's back button.
+- **Bulk operations and exports.** Tick a set of servers or applications and
+  act on all of them at once; save what any table is showing as CSV or JSON,
+  with the filter and sort you applied.
+- **Every change, as a script.** Any operation that changes something offers
+  *Show script*: the same thing written as WLST, and as the exact REST call the
+  console makes. Read it before confirming, or keep it for the change record.
 - **Auto-refresh** with a selectable interval (off / 5s / 15s / 30s / 60s) that
   pauses while the tab is hidden, so a console left open overnight does not
   hammer the AdminServer.
@@ -296,7 +352,16 @@ section before you deploy it anywhere other than your own workstation.
 - **Connect with a role that matches the job.** A `Monitor` or `Operator` user
   is enough for everything except lifecycle and deployment operations. WebLogic
   enforces this — the console just surfaces whatever the API allows for the user
-  you signed in as.
+  you signed in as. The Compare page is a good use for a `Monitor` account: it
+  only reads.
+- **An uploaded archive passes through this process.** Deploying holds the file
+  in the console's memory just long enough to forward it, and writes nothing to
+  disk. `WLC_MAX_UPLOAD_MB` (256 by default) caps how large that can be; raise
+  it deliberately, since the whole archive is buffered.
+- **Background sampling costs one small request per domain per interval.** On a
+  domain where even that is unwelcome, `WLC_SAMPLE_MS=0` turns it off — the
+  charts and alerts go quiet with it, and the console says so rather than
+  showing empty graphs.
 
 ## Troubleshooting
 
@@ -321,6 +386,15 @@ Other things worth knowing:
   statistics will legitimately be empty.
 - **The Logs page returns nothing.** Widen the time window or lower the minimum
   severity — the default is the last hour at `Warning` and above.
+- **The sparklines stay empty.** History is collected by the console process
+  while a browser session is active, so a freshly started console has nothing to
+  draw yet — give it a few minutes. If the alerts panel says sampling is off,
+  the backend was started with `WLC_SAMPLE_MS=0`.
+- **The Security page says users are not exposed.** Not every WebLogic release
+  offers the realm's accounts over REST. The realm and its providers are still
+  read correctly; the accounts themselves need WLST or the Remote Console.
+- **A deployment fails with 413.** The archive is larger than
+  `WLC_MAX_UPLOAD_MB`. Raise it and restart the console.
 - **`npm install` leaves a broken build.** Tailwind 4 and Vite pull
   platform-specific native binaries as optional dependencies. If a build fails
   with a missing `lightningcss.*.node` or `@esbuild/*`, delete `node_modules`
@@ -347,6 +421,8 @@ backend on `:7101`, so the browser only ever sees one origin.
 
 `DataTable` takes a column definition array and gives you sorting, filtering,
 loading, empty and error states; override any cell with a `#cell:<key>` slot.
+Add `state-key` to put its filter and sort in the URL, `export-name` for the CSV
+and JSON buttons, and `selectable` with `v-model:selected` for bulk operations.
 
 ### Notes for contributors
 
@@ -355,7 +431,13 @@ loading, empty and error states; override any cell with a `#cell:<key>` slot.
 - `healthState` is an object in current releases and a `HEALTH_*` string in older
   ones — `healthOf()` handles both.
 - Anything that changes domain state must go through a `ConfirmDialog` and
-  report success and failure through the toast store.
+  report success and failure through the toast store. Pass it
+  `script: {wlst, curl}` from [`src/utils/wlst.js`](src/utils/wlst.js) so the
+  operator can read the operation before confirming it.
+- Runtime attribute names moved between WebLogic releases. For a new subtree,
+  either name the fields you are sure of or omit `fields` entirely and read the
+  result defensively — naming one attribute a release does not have fails the
+  whole search.
 
 ## Compatibility
 
@@ -372,14 +454,17 @@ loading, empty and error states; override any cell with a `#cell:<key>` slot.
 
 Not implemented yet, in rough order of usefulness:
 
-- **Creating and deleting objects** — existing servers, clusters, data sources,
-  applications and log settings can be edited on their own pages, but adding a
-  new data source or removing a server still needs WLST or the Remote Console.
-- **Targeting** — moving a data source or application between servers and
-  clusters.
-- **Application deployment** — uploading a WAR/EAR and targeting it.
-- **Historical charts** — the data is polled already; it is not retained.
-- **Security realm views** — users, groups and role mappings.
+- **Creating and deleting servers, clusters and data sources** — applications
+  can now be deployed and undeployed, and anything that exists can be edited and
+  re-targeted, but adding a new data source or removing a server still needs
+  WLST or the Remote Console.
+- **History that outlives the process** — samples are kept in memory for a
+  couple of hours. Anything longer belongs in a real metrics store, and an
+  exporter for one would be the honest way to do it.
+- **Editing the security realm** — users, groups and role mappings are shown,
+  but changing them is deliberately left to tools with an audit trail.
+- **Alert delivery beyond the browser** — a webhook or an email for the rules
+  that already exist.
 
 ## License
 

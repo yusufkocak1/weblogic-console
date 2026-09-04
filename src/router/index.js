@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
+import { setTitleBase } from '@/utils/title'
 import AppShell from '@/components/AppShell.vue'
 import LoginView from '@/views/LoginView.vue'
 
@@ -66,6 +67,24 @@ const routes = [
       },
       { path: 'jms', name: 'jms', component: () => import('@/views/JmsView.vue'), meta: { title: 'JMS' } },
       {
+        path: 'transactions',
+        name: 'transactions',
+        component: () => import('@/views/TransactionsView.vue'),
+        meta: { title: 'Transactions' },
+      },
+      {
+        path: 'security',
+        name: 'security',
+        component: () => import('@/views/SecurityView.vue'),
+        meta: { title: 'Security' },
+      },
+      {
+        path: 'compare',
+        name: 'compare',
+        component: () => import('@/views/CompareView.vue'),
+        meta: { title: 'Compare domains' },
+      },
+      {
         // Settings live on the page of the thing they configure, so the domain's
         // own settings hang off the Dashboard rather than a menu entry.
         path: 'domain',
@@ -116,10 +135,9 @@ router.beforeEach((to) => {
 })
 
 router.afterEach((to) => {
-  const suffix = 'WebLogic Console'
   // A detail page is named after the object it shows, not after its type.
-  const page = to.params.name ? `${to.params.name} · ${to.meta.title}` : to.meta.title
-  document.title = page ? `${page} · ${suffix}` : suffix
+  // setTitleBase keeps whatever badge the alert watcher has put in front.
+  setTitleBase(to.params.name ? `${to.params.name} · ${to.meta.title}` : to.meta.title)
 })
 
 export default router

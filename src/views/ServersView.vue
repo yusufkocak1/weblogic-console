@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
 import { useResource } from '@/composables/useResource'
-import { ACTION_DESCRIPTIONS, actionsFor, useServerActions } from '@/composables/useServerActions'
+import { ACTION_DESCRIPTIONS, BULK_ACTIONS, actionsFor, useServerActions } from '@/composables/useServerActions'
 import { bytes, duration, items, num, targetNames } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
@@ -11,6 +11,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 
 const confirm = ref(null)
+/** Row keys, so one operation can be run over a whole set of servers. */
+const selected = ref([])
 
 const { data, error, refreshing, loading, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [snapshot, configs] = await Promise.all([wls.runtimeSnapshot({ signal }), wls.configuredServers({ signal })])
@@ -18,7 +20,13 @@ const { data, error, refreshing, loading, lastUpdated, reload } = useResource(as
 })
 
 // The same lifecycle actions are offered on a server's own page.
-const { busy: busyServer, run } = useServerActions({ confirm, onChanged: reload })
+const { busy: busyServer, run, runMany } = useServerActions({ confirm, onChanged: reload })
+
+async function runBulk(action) {
+  const servers = [...selected.value]
+  await runMany(servers, action)
+  selected.value = []
+}
 
 const rows = computed(() => {
   const runtimes = new Map(items(data.value?.snapshot?.serverRuntimes).map((r) => [r.name, r]))
@@ -115,18 +123,45 @@ const COLUMNS = [
         Starting needs a running Node Manager on that server's machine. If Start fails immediately, that is almost
         always the reason.
       </p>
+      <p>
+        To act on several servers at once — a whole cluster, say — tick them on the left and use the buttons that
+        appear above the table. They are requested one after another, and any that fail are named individually.
+      </p>
     </HelpPanel>
 
     <DataTable
+      v-model:selected="selected"
       :columns="COLUMNS"
       :rows="rows"
       :loading="loading"
       :error="error && !data ? error : null"
+      state-key="main"
+      export-name="servers"
+      selectable
       empty-text="No servers are configured in this domain."
       search-placeholder="Filter servers…"
       search-hint="Keeps the rows whose name, state, cluster or listen address contain this text. Useful on a domain with dozens of managed servers."
       @retry="reload"
     >
+      <!-- Selection turns the toolbar into "do this to all of them", which is
+           the difference between restarting a cluster in one step and in ten. -->
+      <template #toolbar>
+        <div v-if="selected.length" class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ selected.length }} selected</span>
+          <button
+            v-for="action in BULK_ACTIONS"
+            :key="action.action"
+            :class="['btn px-2 py-1 text-xs', action.danger ? 'btn-danger' : 'btn-ghost']"
+            :title="ACTION_DESCRIPTIONS[action.action]"
+            @click="runBulk(action)"
+          >
+            {{ action.label }}
+          </button>
+          <button class="btn btn-ghost px-2 py-1 text-xs" title="Clear the selection" @click="selected = []">
+            Clear
+          </button>
+        </div>
+      </template>
       <template #cell:name="{ row }">
         <RouterLink
           :to="{ name: 'server-detail', params: { name: row.name } }"

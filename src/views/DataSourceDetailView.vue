@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import * as wls from '@/api/weblogic'
+import * as config from '@/api/config'
 import { useResource } from '@/composables/useResource'
 import { useUiStore } from '@/stores/ui'
 import { items, num, targetNames } from '@/utils/format'
@@ -9,6 +10,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import FactList from '@/components/FactList.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import TargetPicker from '@/components/TargetPicker.vue'
 
 /**
  * One JDBC data source: the live pool figures next to the settings that
@@ -138,6 +140,16 @@ async function testPool() {
         </div>
         <FactList :facts="facts" />
       </div>
+
+      <TargetPicker
+        class="mb-4"
+        :path="config.dataSourceResourcePath(name)"
+        :name="name"
+        :current="targetNames(configured?.targets)"
+        wlst-type="JDBCSystemResource"
+        description="Where this data source is deployed. Adding a target creates its pool there when the change is activated; removing one takes the pool away, so anything using that JNDI name on that server stops working."
+        @changed="reload"
+      />
 
       <SettingsPanel
         :sections="['data-sources']"

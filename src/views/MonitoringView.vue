@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import * as wls from '@/api/weblogic'
 import { useResource } from '@/composables/useResource'
+import { useHistoryStore } from '@/stores/history'
 import { bytes, duration, healthOf, items, num, percent } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import MeterBar from '@/components/MeterBar.vue'
+import SparkLine from '@/components/SparkLine.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
@@ -13,6 +15,18 @@ import InfoTip from '@/components/InfoTip.vue'
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(({ signal }) =>
   wls.runtimeSnapshot({ signal }),
 )
+
+/**
+ * The same numbers over time. A single reading answers "is it high"; the line
+ * answers "is it getting worse", which is the question that decides what to do.
+ */
+const history = useHistoryStore()
+
+const historyWindow = computed(() => {
+  const minutes = Math.round(history.span / 60000)
+  if (!minutes) return 'building up'
+  return minutes < 60 ? `last ${minutes} min` : `last ${(minutes / 60).toFixed(1)} h`
+})
 
 const servers = computed(() =>
   items(data.value?.serverRuntimes).map((runtime) => {
@@ -75,8 +89,9 @@ const servers = computed(() =>
         </li>
       </ol>
       <p>
-        Turn auto-refresh on in the top bar and watch for a minute: the direction these numbers move in tells you
-        more than any single reading.
+        The line under each bar is the last couple of hours, sampled in the background — so the direction is there
+        the moment you open the page, without having to sit and watch it. A heap that sawtooths is healthy garbage
+        collection; one that climbs in steps and never returns is a leak.
       </p>
     </HelpPanel>
 
@@ -116,6 +131,15 @@ const servers = computed(() =>
               :max="server.heapMax || 1"
               :label="`${bytes(server.heapUsed)} of ${bytes(server.heapMax)}`"
             />
+            <SparkLine
+              class="mt-2"
+              :values="history.heapPercentSeries(server.name)"
+              :max="100"
+              :height="34"
+              :tone="history.heapPercentSeries(server.name).at(-1) >= 90 ? 'bad' : 'default'"
+              :title="`Heap used as a percentage of the maximum — ${historyWindow}`"
+              empty-text="history builds up while the console runs"
+            />
             <dl class="mt-2 space-y-1 text-xs">
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
@@ -154,6 +178,14 @@ const servers = computed(() =>
               :value="server.threadsBusy"
               :max="server.threadsTotal || 1"
               :label="`${server.threadsBusy} busy of ${server.threadsTotal}`"
+            />
+            <SparkLine
+              class="mt-2"
+              :values="history.series(server.name, 'tb')"
+              :height="34"
+              :tone="server.stuck > 0 ? 'bad' : 'default'"
+              :title="`Threads executing requests — ${historyWindow}`"
+              empty-text="history builds up while the console runs"
             />
             <dl class="mt-2 space-y-1 text-xs">
               <div class="flex justify-between">

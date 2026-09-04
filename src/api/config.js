@@ -77,3 +77,21 @@ export const serverPath = (name) => `/edit/servers/${enc(name)}`
 export const clusterPath = (name) => `/edit/clusters/${enc(name)}`
 export const dataSourcePath = (name) => `/edit/JDBCSystemResources/${enc(name)}/JDBCResource`
 export const deploymentPath = (name) => `/edit/appDeployments/${enc(name)}`
+
+// --- targeting ---------------------------------------------------------------
+
+/**
+ * Where a resource is deployed. WebLogic writes targets as identities into the
+ * edit tree — [{identity: ['servers', 'ms1']}] — and replaces the whole list,
+ * so a target picker always sends every target the resource should end up with.
+ *
+ * @param {{kind: 'servers'|'clusters', name: string}[]} entries
+ */
+export const targetIdentities = (entries) => entries.map(({ kind, name }) => ({ identity: [kind, name] }))
+
+export const setTargets = (path, entries, options) =>
+  updateMBean(path, { targets: targetIdentities(entries) }, options)
+
+/** The MBean that owns a data source's targets is the system resource, not JDBCResource. */
+export const dataSourceResourcePath = (name) => `/edit/JDBCSystemResources/${enc(name)}`
+export const libraryPath = (name) => `/edit/libraries/${enc(name)}`

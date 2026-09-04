@@ -4,16 +4,27 @@ import { RouterLink } from 'vue-router'
 import * as wls from '@/api/weblogic'
 import { useResource } from '@/composables/useResource'
 import { useConnectionStore } from '@/stores/connection'
+import { useHistoryStore } from '@/stores/history'
 import { bytes, duration, healthOf, items, num, since } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import StatCard from '@/components/StatCard.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import MeterBar from '@/components/MeterBar.vue'
+import SparkLine from '@/components/SparkLine.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 import InfoTip from '@/components/InfoTip.vue'
 
 const connection = useConnectionStore()
+// Filled in the background by the console process, so a card opened just now
+// still has an hour of heap behind it.
+const history = useHistoryStore()
+
+const historyWindow = computed(() => {
+  const minutes = Math.round(history.span / 60000)
+  if (!minutes) return 'no history yet'
+  return minutes < 60 ? `last ${minutes} min` : `last ${(minutes / 60).toFixed(1)} h`
+})
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [snapshot, servers, clusters, deployments] = await Promise.all([
@@ -91,6 +102,11 @@ const serversTone = computed(() => {
         Numbers refresh on the interval set in the top bar. Hover any ⓘ for an explanation; the ⓘ button up there
         hides all hints once you no longer need them.
       </p>
+      <p>
+        The line under each heap bar is that server's recent history, collected in the background whether or not this
+        page is open. The bell in the top bar says when a threshold has been crossed, and Ctrl-K jumps straight to any
+        server, application or data source by name.
+      </p>
     </HelpPanel>
 
     <ErrorState v-if="error && !data" :error="error" @retry="reload" />
@@ -162,6 +178,17 @@ const serversTone = computed(() => {
               :value="Number(server.jvm.heapSizeCurrent || 0) - Number(server.jvm.heapFreeCurrent || 0)"
               :max="Number(server.jvm.heapSizeMax || server.jvm.heapSizeCurrent || 1)"
               :label="`Heap ${bytes(Number(server.jvm.heapSizeCurrent || 0) - Number(server.jvm.heapFreeCurrent || 0))} of ${bytes(server.jvm.heapSizeMax)}`"
+            />
+
+            <!-- The shape matters more than the reading: a sawtooth is healthy
+                 garbage collection, a staircase is a leak. -->
+            <SparkLine
+              :values="history.heapPercentSeries(server.name)"
+              :max="100"
+              :height="26"
+              :tone="history.heapPercentSeries(server.name).at(-1) >= 90 ? 'bad' : 'default'"
+              :title="`Heap used, ${historyWindow}`"
+              empty-text="heap history builds up as the console runs"
             />
             <dl class="grid grid-cols-3 gap-2 text-xs">
               <div>

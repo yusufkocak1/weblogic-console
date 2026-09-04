@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, toRef, watch } from 'vue'
 import * as wls from '@/api/weblogic'
 import { useUiStore } from '@/stores/ui'
+import { useUrlState } from '@/composables/useUrlState'
 import { items } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -40,6 +41,23 @@ const form = reactive({
   sinceMs: 60 * 60_000,
   limit: 200,
 })
+
+/**
+ * The filters live in the URL. "The errors on ms2 in the last six hours" then
+ * becomes a link that can go in a ticket, survives a reload, and comes back
+ * with the back button.
+ */
+useUrlState(
+  {
+    server: toRef(form, 'server'),
+    log: toRef(form, 'log'),
+    severity: toRef(form, 'minSeverity'),
+    contains: toRef(form, 'contains'),
+    since: toRef(form, 'sinceMs'),
+    limit: toRef(form, 'limit'),
+  },
+  { server: '', log: 'ServerLog', severity: 'Warning', contains: '', since: 60 * 60_000, limit: 200 },
+)
 
 const servers = ref([])
 const logNames = ref(['ServerLog', 'DomainLog', 'HTTPAccessLog', 'DataSourceLog'])
@@ -173,6 +191,10 @@ const summary = computed(() => {
       <p>
         The first matching record is usually the real cause; the ones after it are often knock-on failures. Note the
         subsystem in brackets - JDBC, JMS or Deployer tells you which page to look at next.
+      </p>
+      <p>
+        These filters are kept in the page's address, so the browser's back button steps through them and the link in
+        the address bar reopens exactly this search for whoever you send it to.
       </p>
     </HelpPanel>
 

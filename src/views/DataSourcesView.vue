@@ -142,6 +142,8 @@ async function testPool(row) {
       :rows="rows"
       :loading="loading"
       :error="error && !data ? error : null"
+      state-key="main"
+      export-name="data-sources"
       empty-text="No JDBC data sources are configured."
       search-placeholder="Filter data sources…"
       search-hint="Matches the data source name, state and targets of the rows already loaded."
