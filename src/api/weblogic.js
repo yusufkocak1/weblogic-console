@@ -172,9 +172,19 @@ export function applicationRuntimes(options) {
 
 /**
  * The state the classic console shows for a deployment — ACTIVE, ADMIN,
- * PREPARED, NEW, FAILED, RETIRED. It is an action on the deployment runtime
- * rather than a readable attribute, so there is no way to ask for the whole
- * table at once; `deploymentStates` batches the calls instead.
+ * PREPARED, NEW, FAILED, RETIRED — only exists behind actions, not attributes.
+ * The one that answers without knowing a target is the domain-wide
+ * AppRuntimeStateRuntime: its intended state is also the only place a retired
+ * version is actually called RETIRED.
+ */
+export function deploymentIntendedState(app, options) {
+  return post('/domainRuntime/appRuntimeStateRuntime/getIntendedState', { appid: app }, options)
+}
+
+/**
+ * Per-target state from the deployment runtime. The REST action rejects a call
+ * without a target, so one has to be supplied from the deployment's
+ * configuration — asking with an empty body only ever produces a 400.
  */
 export function deploymentState(app, target, options) {
   return post(
@@ -196,24 +206,57 @@ export function normaliseDeploymentState(value) {
   return value.trim().toUpperCase().replace(/^STATE_/, '') || null
 }
 
-/** Resolves the state of many applications, a few requests at a time. */
-export async function deploymentStates(names, options) {
-  const queue = [...names]
+/**
+ * Resolves the state of many applications, a few requests at a time.
+ *
+ * Takes `[{name, targets}]` (bare names work too) and probes per application,
+ * first answer wins:
+ *  1. getIntendedState — needs no target and knows about retirement;
+ *  2. the deployment runtime's getState, once per configured target, because
+ *     that action does not answer without one.
+ */
+export async function deploymentStates(apps, options) {
+  const queue = apps.map((app) => (typeof app === 'string' ? { name: app, targets: [] } : app))
   const states = new Map()
+  // A release too old to expose appRuntimeStateRuntime is too old for every
+  // application at once — remembered so it is not rediscovered N times.
+  let hasIntendedState = true
+
+  const stateFrom = (response) => normaliseDeploymentState(response?.return ?? response)
+  // An abort or a dead session concerns every call, not just the current one.
+  const rethrowFatal = (err) => {
+    if (err?.name === 'AbortError' || err?.isAuthError) throw err
+  }
+
+  async function resolve({ name, targets }) {
+    if (hasIntendedState) {
+      try {
+        const state = stateFrom(await deploymentIntendedState(name, options))
+        if (state) return state
+      } catch (err) {
+        rethrowFatal(err)
+        if (err?.status === 404) hasIntendedState = false
+      }
+    }
+    for (const target of targets?.length ? targets : [undefined]) {
+      try {
+        const state = stateFrom(await deploymentState(name, target, options))
+        if (state) return state
+      } catch (err) {
+        rethrowFatal(err)
+      }
+    }
+    // No answer at all: the caller falls back to the per-server application
+    // runtimes it already has.
+    return null
+  }
 
   async function worker() {
     while (queue.length) {
-      const name = queue.shift()
-      try {
-        const response = await deploymentState(name, undefined, options)
-        const state = normaliseDeploymentState(response?.return ?? response)
-        if (state) states.set(name, state)
-      } catch (err) {
-        // An abort or a dead session concerns every call, not just this one.
-        if (err?.name === 'AbortError' || err?.isAuthError) throw err
-        // Anything else means this deployment has no runtime to ask, which the
-        // caller renders from the per-server application runtimes instead.
-      }
+      const app = queue.shift()
+      if (!app?.name) continue
+      const state = await resolve(app)
+      if (state) states.set(app.name, state)
     }
   }
 
@@ -369,19 +412,49 @@ const logBase = (server, log) =>
  * Log retrieval goes through the WLDF data accessor. Recent releases expose a
  * one-shot `search` action; older ones only have the cursor protocol, so we fall
  * back to openCursor/fetch/closeCursor when `search` is not available.
+ *
+ * Pass an absolute window as `startTime`/`endTime`, or a relative one as
+ * `sinceMs`. Whatever the accessor does with the bounds, the rows that come
+ * back are trimmed to the window here, so the window on screen is the window
+ * in the results.
  */
 export async function fetchLog(server, options = {}, requestOptions) {
   const { log = 'ServerLog', query = '', limit = 200, sinceMs = 3600000 } = options
-  const endTime = Date.now()
-  const startTime = endTime - sinceMs
+  const endTime = Number(options.endTime) || Date.now()
+  const startTime = Number(options.startTime) || endTime - sinceMs
+  const wanted = Math.max(1, Math.min(Number(limit) || 200, 2000))
+
+  let rows
   try {
-    const res = await post(`${logBase(server, log)}/search`, { query, startTime, endTime, limit }, requestOptions)
-    return normalizeLogRows(res?.return ?? res?.records ?? res)
+    const res = await post(
+      `${logBase(server, log)}/search`,
+      // beginTimestamp/endTimestamp are the accessor operation's own parameter
+      // names; startTime/endTime are what the newer search action documents.
+      // Sending both means the window is applied whichever pair the release
+      // reads, and a release strict enough to reject the extras answers 400 -
+      // which drops us onto the cursor protocol below, where the names are not
+      // in doubt.
+      {
+        query,
+        startTime,
+        endTime,
+        beginTimestamp: startTime,
+        endTimestamp: endTime,
+        limit: wanted,
+      },
+      requestOptions,
+    )
+    rows = normalizeLogRows(res?.return ?? res?.records ?? res)
   } catch (err) {
     if (![400, 404, 405, 500].includes(err?.status)) throw err
-    return fetchLogViaCursor(server, { log, query, limit, startTime, endTime }, requestOptions)
+    rows = await fetchLogViaCursor(server, { log, query, limit: wanted, startTime, endTime }, requestOptions)
   }
+  return clampLogRows(rows, { startTime, endTime, limit: wanted })
 }
+
+/** A cursor can hand back far more than was asked for; this is the stop. */
+const CURSOR_CHUNK_LIMIT = 50
+const CURSOR_ROW_LIMIT = 10_000
 
 async function fetchLogViaCursor(server, { log, query, limit, startTime, endTime }, requestOptions) {
   const base = logBase(server, log)
@@ -393,9 +466,13 @@ async function fetchLogViaCursor(server, { log, query, limit, startTime, endTime
   const cursor = opened?.return ?? opened
   if (!cursor || typeof cursor !== 'string') return []
   const rows = []
+  const ceiling = Math.min(Math.max(limit * 5, limit), CURSOR_ROW_LIMIT)
   try {
-    // fetch() streams one chunk per call and returns an empty array once drained.
-    for (let i = 0; i < 50 && rows.length < limit; i++) {
+    // fetch() streams one chunk per call and returns an empty array once
+    // drained. The cursor runs oldest-first, so stopping at `limit` would keep
+    // the oldest records and throw away the newest - the opposite of what the
+    // limit is for. Drain further and let clampLogRows keep the newest.
+    for (let i = 0; i < CURSOR_CHUNK_LIMIT && rows.length < ceiling; i++) {
       const chunk = await post(`${base}/fetch`, { cursor }, requestOptions)
       const items = chunk?.return ?? []
       if (!items.length) break
@@ -404,17 +481,55 @@ async function fetchLogViaCursor(server, { log, query, limit, startTime, endTime
   } finally {
     await post(`${base}/closeCursor`, { cursor }, requestOptions).catch(() => {})
   }
-  return normalizeLogRows(rows).slice(0, limit)
+  return normalizeLogRows(rows)
+}
+
+/**
+ * Trims a result set to the window that was asked for and to the newest
+ * `limit` records, in chronological order.
+ *
+ * Records whose timestamp could not be read are kept: a timestamp this code
+ * cannot parse is a reason to show the line, not to hide it.
+ */
+function clampLogRows(rows, { startTime, endTime, limit }) {
+  const inWindow = rows.filter(
+    (row) => row.timestamp === null || (row.timestamp >= startTime && row.timestamp <= endTime),
+  )
+  inWindow.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+  return inWindow.length > limit ? inWindow.slice(inWindow.length - limit) : inWindow
+}
+
+/**
+ * TIMESTAMP is epoch milliseconds on most releases, but the REST layer can hand
+ * it back as a string of digits, as seconds, or as an ISO-8601 date. Number()
+ * turns the ISO form into NaN, which is how a record ends up shown as "Invalid
+ * Date" and sorted as though it happened in 1970, so every shape is read here.
+ *
+ * @returns {number|null} epoch milliseconds, or null if it cannot be read
+ */
+function toEpochMs(value) {
+  if (value === null || value === undefined || value === '') return null
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.getTime()
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const text = String(value).trim()
+  if (!text) return null
+  if (/^\d+$/.test(text)) {
+    // Ten digits or fewer is a seconds-since-epoch stamp, not milliseconds.
+    const n = Number(text)
+    return Number.isFinite(n) ? (text.length <= 10 ? n * 1000 : n) : null
+  }
+  const parsed = Date.parse(text)
+  return Number.isNaN(parsed) ? null : parsed
 }
 
 /** WLDF returns upper-case column names; older builds use camelCase. */
 function normalizeLogRows(rows) {
   if (!Array.isArray(rows)) return []
   return rows.map((row, index) => {
-    if (typeof row === 'string') return { id: index, message: row, raw: row }
+    if (typeof row === 'string') return { id: index, timestamp: null, message: row, raw: row }
     return {
       id: row.RECORDID ?? row.recordId ?? index,
-      timestamp: row.TIMESTAMP ?? row.timestamp ?? null,
+      timestamp: toEpochMs(row.TIMESTAMP ?? row.timestamp ?? null),
       severity: String(row.SEVERITY ?? row.severity ?? '').toUpperCase(),
       subsystem: row.SUBSYSTEM ?? row.subsystem ?? '',
       machine: row.MACHINE ?? row.machine ?? '',

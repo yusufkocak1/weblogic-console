@@ -35,9 +35,11 @@ const scriptContext = () => ({ username: connection.username, baseUrl: connectio
 
 const { data, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [configs, runtimes] = await Promise.all([wls.appDeployments({ signal }), wls.applicationRuntimes({ signal })])
-  // The state the classic console shows only exists as an action on the
-  // deployment runtime, so it is asked for separately.
-  const states = await wls.deploymentStates([name.value], { signal })
+  // The state the classic console shows only exists behind state actions, so
+  // it is asked for separately — with this deployment's targets in hand for
+  // the probe that cannot answer without one.
+  const targets = targetNames(items(configs).find((config) => config.name === name.value)?.targets)
+  const states = await wls.deploymentStates([{ name: name.value, targets }], { signal })
   return { configs, runtimes, states }
 })
 
@@ -58,10 +60,10 @@ const instances = computed(() => {
 })
 
 const targets = computed(() => targetNames(configured.value?.targets))
-// WebLogic's own answer only. A loaded runtime does not prove the deployment
-// is serving — a retired version keeps one while it drains its last sessions —
-// so an unanswered getState leaves the state UNKNOWN rather than ACTIVE.
-const state = computed(() => data.value?.states?.get(name.value) || (instances.value.length ? 'UNKNOWN' : null))
+// WebLogic's own answer when any state probe gave one; only when none did is
+// a deployment with loaded runtimes shown as ACTIVE — safe now that the
+// version-aware matching above cannot count another version's instances.
+const state = computed(() => data.value?.states?.get(name.value) || (instances.value.length ? 'ACTIVE' : null))
 const health = computed(() =>
   instances.value.length ? (instances.value.find((i) => i.health !== 'OK')?.health ?? 'OK') : null,
 )

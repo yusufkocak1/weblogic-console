@@ -31,11 +31,13 @@ const { data, error, loading, refreshing, lastUpdated, reload } = useResource(as
     wls.applicationRuntimes({ signal }),
     wls.libraries({ signal }),
   ])
-  // The state column has to agree with the classic console, and the only place
-  // that answer exists is the deployment runtime's getState action — one call
-  // per application, run a few at a time.
+  // The state column has to agree with the classic console, and that answer
+  // only exists behind per-application state actions — asked a few at a time,
+  // with each deployment's own targets for the probes that need one.
   const states = await wls.deploymentStates(
-    items(configs).map((config) => config.name).filter(Boolean),
+    items(configs)
+      .filter((config) => config.name)
+      .map((config) => ({ name: config.name, targets: targetNames(config.targets) })),
     { signal },
   )
   return { configs, runtimes, libs, states }
@@ -73,11 +75,11 @@ const rows = computed(() => {
       sourcePath: config.sourcePath || config.absoluteSourcePath || '—',
       staging: config.stagingMode || 'nostage',
       activeOn: running.map((r) => r.server),
-      // WebLogic's own answer, and nothing invented on top of it. A loaded
-      // runtime is not proof the deployment is serving — a retired version
-      // still has one while it drains its last sessions — so when the getState
-      // call gave no answer the state stays UNKNOWN rather than ACTIVE.
-      state: states?.get(config.name) || (running.length ? 'UNKNOWN' : null),
+      // WebLogic's own answer when any state probe gave one. Only when none
+      // did is a deployment with loaded runtimes shown as ACTIVE — safe now
+      // that the version-aware matching above cannot count another version's
+      // instances as this one's.
+      state: states?.get(config.name) || (running.length ? 'ACTIVE' : null),
       // Any unhealthy instance decides the row's health: that is what an
       // operator needs to notice first.
       health: running.length ? (running.find((r) => r.health !== 'OK')?.health ?? 'OK') : null,
