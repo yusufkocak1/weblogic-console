@@ -7,6 +7,7 @@ import { items, num, targetNames } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
 import StateBadge from '@/components/StateBadge.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
 
 const ui = useUiStore()
 const testing = ref(null)
@@ -52,12 +53,39 @@ const rows = computed(() =>
 )
 
 const COLUMNS = [
-  { key: 'name', label: 'Data source' },
-  { key: 'state', label: 'State' },
-  { key: 'active', label: 'Active', align: 'right' },
-  { key: 'current', label: 'Pool size', align: 'right' },
-  { key: 'waiting', label: 'Waiting', align: 'right' },
-  { key: 'targets', label: 'Targets' },
+  {
+    key: 'name',
+    label: 'Data source',
+    hint: 'The data source name, with its JDBC URL underneath. Applications look it up by JNDI name, not by this one.',
+  },
+  {
+    key: 'state',
+    label: 'State',
+    hint: 'Running means the pool is up on at least one server. Suspended or Overloaded means the pool exists but is not usable. "Not deployed" means no target server is running it.',
+  },
+  {
+    key: 'active',
+    label: 'Active',
+    align: 'right',
+    hint: 'Connections currently checked out by application code, summed over every server. Sitting at the pool maximum means requests are queueing for a connection.',
+  },
+  {
+    key: 'current',
+    label: 'Pool size',
+    align: 'right',
+    hint: 'Connections the pool holds right now, with the configured initial – maximum capacity in brackets. WebLogic grows the pool towards the maximum under load.',
+  },
+  {
+    key: 'waiting',
+    label: 'Waiting',
+    align: 'right',
+    hint: 'Threads blocked waiting for a free connection. Anything above zero means the pool is too small or queries are too slow.',
+  },
+  {
+    key: 'targets',
+    label: 'Targets',
+    hint: 'The servers and clusters this data source is deployed to. A data source only has runtime numbers where it is targeted.',
+  },
   { key: 'actions', label: '', sortable: false, align: 'right' },
 ]
 
@@ -87,8 +115,27 @@ async function testPool(row) {
       subtitle="JDBC configuration and live pool statistics"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
+      help="Every JDBC data source in the domain with its live connection pool numbers. Counts are summed across all servers the data source is targeted to."
       @refresh="reload"
     />
+
+    <HelpPanel id="data-sources" title="How to check whether a database connection is healthy">
+      <ol class="list-decimal space-y-1 pl-4">
+        <li>
+          Press <strong>Test</strong> on the row. It borrows a real connection from the pool on one running server and
+          runs the configured test query, so a pass proves the database is genuinely reachable with these credentials.
+        </li>
+        <li>
+          A failure toast carries the JDBC error itself — <em>ORA-01017</em> is a wrong password,
+          <em>ORA-12541</em> or a connection refused is a listener or firewall problem.
+        </li>
+        <li>
+          If <strong>Waiting</strong> is above zero, or <strong>Active</strong> is stuck at the maximum in brackets,
+          the pool is the bottleneck rather than the database.
+        </li>
+      </ol>
+      <p>Test needs at least one target server running — a data source with no runtime instance cannot be tested.</p>
+    </HelpPanel>
 
     <DataTable
       :columns="COLUMNS"
@@ -97,6 +144,7 @@ async function testPool(row) {
       :error="error && !data ? error : null"
       empty-text="No JDBC data sources are configured."
       search-placeholder="Filter data sources…"
+      search-hint="Matches the data source name, state and targets of the rows already loaded."
       @retry="reload"
     >
       <template #cell:name="{ row }">
@@ -115,7 +163,12 @@ async function testPool(row) {
 
       <template #cell:current="{ row }">
         <span class="tabular-nums">{{ num(row.current) }}</span>
-        <span class="ml-1 text-xs text-zinc-400 dark:text-zinc-500">({{ row.capacity }})</span>
+        <span
+          class="ml-1 text-xs text-zinc-400 dark:text-zinc-500"
+          title="Configured initial – maximum capacity of this pool"
+        >
+          ({{ row.capacity }})
+        </span>
       </template>
 
       <template #cell:waiting="{ row }">
@@ -125,7 +178,12 @@ async function testPool(row) {
       </template>
 
       <template #cell:actions="{ row }">
-        <button class="btn btn-ghost px-2 py-1 text-xs" :disabled="testing === row.name" @click="testPool(row)">
+        <button
+          class="btn btn-ghost px-2 py-1 text-xs"
+          title="Borrow a connection from this pool and run its test query against the database. Read-only and safe to press at any time."
+          :disabled="testing === row.name"
+          @click="testPool(row)"
+        >
           {{ testing === row.name ? 'Testing…' : 'Test' }}
         </button>
       </template>

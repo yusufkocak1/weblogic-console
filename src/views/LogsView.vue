@@ -5,6 +5,8 @@ import { useUiStore } from '@/stores/ui'
 import { items } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
+import InfoTip from '@/components/InfoTip.vue'
 
 const ui = useUiStore()
 
@@ -148,45 +150,109 @@ const summary = computed(() => {
       :subtitle="summary || 'Server log records via the WLDF accessor'"
       :last-updated="lastUpdated"
       :refreshing="loading"
+      help="Reads log records straight out of a running server through the WLDF accessor, so you can search them without shell access to the machine. Set the filters, press Fetch, and the newest records appear first."
       @refresh="loadLog"
     />
 
+    <HelpPanel id="logs" title="How to find the error behind an incident">
+      <ol class="list-decimal space-y-1 pl-4">
+        <li>Pick the <strong>Server</strong> that showed the problem. Only running servers can be queried.</li>
+        <li>
+          Leave <strong>Log</strong> on ServerLog for application and server messages. DomainLog is the AdminServer's
+          merged copy, HTTPAccessLog is one line per HTTP request.
+        </li>
+        <li>
+          Set <strong>Minimum severity</strong> to Error and a <strong>Time window</strong> that covers the incident,
+          then press <strong>Fetch</strong>.
+        </li>
+        <li>
+          Nothing found? Widen the window or drop to Warning. Too much? Put a message id such as
+          <code class="font-mono">BEA-000337</code> or a class name in <strong>Message contains</strong>.
+        </li>
+      </ol>
+      <p>
+        The first matching record is usually the real cause; the ones after it are often knock-on failures. Note the
+        subsystem in brackets - JDBC, JMS or Deployer tells you which page to look at next.
+      </p>
+    </HelpPanel>
+
     <div class="card mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-6">
       <div>
-        <label class="label" for="log-server">Server</label>
+        <label class="label-row" for="log-server">
+          Server
+          <InfoTip
+            heading="Server"
+            text="Which server's log to read. Each server writes its own log file, so pick the one that served the failing request. Stopped servers cannot be queried at all."
+          />
+        </label>
         <select id="log-server" v-model="form.server" class="input">
           <option v-if="!servers.length" value="">No running server</option>
           <option v-for="server in servers" :key="server" :value="server">{{ server }}</option>
         </select>
       </div>
       <div>
-        <label class="label" for="log-name">Log</label>
+        <label class="label-row" for="log-name">
+          Log
+          <InfoTip
+            heading="Log"
+            text="ServerLog is the general server and application log and the right default. DomainLog is the AdminServer's merged view of the domain. HTTPAccessLog has one line per HTTP request. DataSourceLog carries JDBC detail."
+          />
+        </label>
         <select id="log-name" v-model="form.log" class="input" @change="loadLog">
           <option v-for="name in logNames" :key="name" :value="name">{{ name }}</option>
         </select>
       </div>
       <div>
-        <label class="label" for="log-severity">Minimum severity</label>
+        <label class="label-row" for="log-severity">
+          Minimum severity
+          <InfoTip
+            heading="Minimum severity"
+            text="Keeps this level and everything more serious. Error is the usual starting point; Warning catches problems that have not failed yet; Info is verbose on a busy server."
+          />
+        </label>
         <select id="log-severity" v-model="form.minSeverity" class="input" @change="loadLog">
           <option v-for="severity in SEVERITIES" :key="severity" :value="severity">{{ severity }}</option>
         </select>
       </div>
       <div>
-        <label class="label" for="log-window">Time window</label>
+        <label class="label-row" for="log-window">
+          Time window
+          <InfoTip
+            heading="Time window"
+            text="How far back to search, counted from now. Start narrow: a wide window on a busy server returns a lot and takes longer to read."
+          />
+        </label>
         <select id="log-window" v-model.number="form.sinceMs" class="input" @change="loadLog">
           <option v-for="window in WINDOWS" :key="window.value" :value="window.value">{{ window.label }}</option>
         </select>
       </div>
       <div>
-        <label class="label" for="log-contains">Message contains</label>
+        <label class="label-row" for="log-contains">
+          Message contains
+          <InfoTip
+            heading="Message contains"
+            text="Free text matched inside the message body, case sensitive. Good values: a message id such as BEA-000337, an exception class, an order number. Leave it empty to see everything at this severity."
+          />
+        </label>
         <input id="log-contains" v-model="form.contains" class="input" placeholder="e.g. BEA-000337" @keyup.enter="loadLog" />
       </div>
       <div class="flex items-end gap-2">
         <div class="w-20">
-          <label class="label" for="log-limit">Limit</label>
+          <label class="label-row" for="log-limit">
+            Limit
+            <InfoTip
+              heading="Limit"
+              text="Most records to fetch, between 10 and 2000. The newest are kept, so a low limit on a wide window can hide older matches."
+            />
+          </label>
           <input id="log-limit" v-model.number="form.limit" class="input" type="number" min="10" max="2000" step="10" />
         </div>
-        <button class="btn btn-primary flex-1" :disabled="loading || !form.server" @click="loadLog">
+        <button
+          class="btn btn-primary flex-1"
+          title="Run the query with these filters. Severity, log, window and time changes fetch on their own; the text box needs this button or the Enter key."
+          :disabled="loading || !form.server"
+          @click="loadLog"
+        >
           {{ loading ? 'Loading…' : 'Fetch' }}
         </button>
       </div>

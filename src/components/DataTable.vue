@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from 'vue'
 import ErrorState from '@/components/ErrorState.vue'
+import InfoTip from '@/components/InfoTip.vue'
 
 const props = defineProps({
-  columns: { type: Array, required: true }, // [{ key, label, align, sortable, width }]
+  columns: { type: Array, required: true }, // [{ key, label, align, sortable, width, hint }]
   rows: { type: Array, default: () => [] },
   rowKey: { type: [String, Function], default: 'name' },
   loading: { type: Boolean, default: false },
@@ -11,6 +12,11 @@ const props = defineProps({
   emptyText: { type: String, default: 'Nothing to show.' },
   searchable: { type: Boolean, default: true },
   searchPlaceholder: { type: String, default: 'Filter…' },
+  /** Explains what the filter box matches on this particular table. */
+  searchHint: {
+    type: String,
+    default: 'Type to keep only the rows containing this text. It matches every column shown here and filters the rows already loaded — it does not query the server.',
+  },
   dense: { type: Boolean, default: false },
 })
 
@@ -67,7 +73,10 @@ const alignClass = (column) =>
   <div class="card overflow-hidden">
     <div v-if="searchable || $slots.toolbar" class="flex flex-wrap items-center gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
       <div v-if="searchable" class="relative max-w-xs flex-1">
-        <input v-model="query" class="input pl-8" :placeholder="searchPlaceholder" type="search" />
+        <input v-model="query" class="input pl-8 pr-8" :placeholder="searchPlaceholder" type="search" />
+        <span class="absolute right-2.5 top-2">
+          <InfoTip heading="Filter" :text="searchHint" label="How the filter box works" />
+        </span>
         <svg
           class="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-zinc-400"
           viewBox="0 0 24 24"
@@ -80,7 +89,10 @@ const alignClass = (column) =>
         </svg>
       </div>
       <slot name="toolbar" />
-      <span class="ml-auto text-xs text-zinc-400 dark:text-zinc-500">
+      <span
+        class="ml-auto text-xs text-zinc-400 dark:text-zinc-500"
+        title="Rows shown / rows loaded"
+      >
         {{ sorted.length }}<template v-if="sorted.length !== rows.length"> / {{ rows.length }}</template>
       </span>
     </div>
@@ -100,9 +112,18 @@ const alignClass = (column) =>
                 alignClass(column),
                 column.sortable !== false && 'cursor-pointer select-none hover:text-zinc-800 dark:hover:text-zinc-200',
               ]"
+              :title="column.sortable !== false && !column.hint ? `Click to sort by ${column.label}` : null"
               @click="toggleSort(column)"
             >
-              {{ column.label }}
+              <span class="inline-flex items-center gap-1">
+                {{ column.label }}
+                <InfoTip
+                  v-if="column.hint"
+                  :heading="column.label"
+                  :text="column.hint"
+                  :label="`What the ${column.label} column shows`"
+                />
+              </span>
               <span v-if="sortKey === column.key" class="ml-0.5 text-[10px]">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
           </tr>

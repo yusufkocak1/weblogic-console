@@ -63,6 +63,17 @@ export function targetNames(targets) {
     .filter(Boolean)
 }
 
+/**
+ * A versioned deployment is called `myapp#V1` by its configuration MBean but
+ * `myapp` by ApplicationRuntime.applicationName, so names have to be compared
+ * without the version before deciding an application is not running.
+ */
+export function baseAppName(name) {
+  const value = String(name ?? '')
+  const hash = value.indexOf('#')
+  return hash === -1 ? value : value.slice(0, hash)
+}
+
 /** ServerRuntime healthState is an object in recent releases, a string in older ones. */
 export function healthOf(health) {
   if (!health) return 'UNKNOWN'

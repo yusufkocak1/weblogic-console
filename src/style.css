@@ -56,3 +56,8 @@ body {
 @utility label {
   @apply mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400;
 }
+
+/* Same as .label, but laid out as a row so an InfoTip can sit beside the text. */
+@utility label-row {
+  @apply mb-1 flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400;
+}

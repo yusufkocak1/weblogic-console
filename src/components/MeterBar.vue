@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import InfoTip from '@/components/InfoTip.vue'
 
 const props = defineProps({
   value: { type: Number, default: 0 },
@@ -8,6 +9,8 @@ const props = defineProps({
   warnAt: { type: Number, default: 0.75 },
   dangerAt: { type: Number, default: 0.9 },
   label: { type: String, default: '' },
+  /** Optional explanation of what the bar measures and when its colour changes. */
+  tip: { type: String, default: '' },
 })
 
 const ratio = computed(() => {
@@ -25,8 +28,16 @@ const color = computed(() => {
 <template>
   <div>
     <div class="flex items-baseline justify-between gap-2">
-      <span v-if="label" class="text-xs text-zinc-500 dark:text-zinc-400">{{ label }}</span>
-      <span class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{{ Math.round(ratio * 100) }}%</span>
+      <span v-if="label" class="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+        {{ label }}
+        <InfoTip v-if="tip" :text="tip" label="What this bar measures" />
+      </span>
+      <span
+        class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400"
+        :title="`${Math.round(ratio * 100)}% used — amber from ${Math.round(warnAt * 100)}%, red from ${Math.round(dangerAt * 100)}%`"
+      >
+        {{ Math.round(ratio * 100) }}%
+      </span>
     </div>
     <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
       <div :class="['h-full rounded-full transition-all duration-500', color]" :style="{ width: `${ratio * 100}%` }" />

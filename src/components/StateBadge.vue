@@ -13,6 +13,11 @@ const STATE_TONES = {
   ACTIVE: 'emerald',
   ADMIN: 'amber',
   STANDBY: 'amber',
+  PREPARED: 'amber',
+  DISTRIBUTED: 'amber',
+  NEW: 'zinc',
+  RETIRED: 'zinc',
+  UPDATE_PENDING: 'sky',
   STARTING: 'sky',
   RESUMING: 'sky',
   SUSPENDING: 'amber',
@@ -41,6 +46,39 @@ const TONE_CLASSES = {
   zinc: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-500/15 dark:text-zinc-400 dark:ring-zinc-500/30',
 }
 
+/** Plain-language meaning of each badge, shown on hover. */
+const STATE_DESCRIPTIONS = {
+  RUNNING: 'Serving application traffic normally.',
+  ACTIVE: 'Deployed and serving requests.',
+  PREPARED: 'Deployed and loaded on its targets, but not serving requests yet. Start it to make it active.',
+  DISTRIBUTED: 'The archive has reached its targets but has not been prepared or started there.',
+  NEW: 'Configured in the domain but not distributed to any target yet.',
+  RETIRED: 'A newer version took over. This one still finishes the sessions it already had.',
+  UPDATE_PENDING: 'A deployment change is being applied. The state settles once it finishes.',
+  ADMIN: 'Started, but only administration requests are accepted — application traffic is refused. Resume to bring it back.',
+  STANDBY: 'Started and listening on the administration port only. It holds no application work yet.',
+  STARTING: 'Booting. It moves to RUNNING on its own if startup succeeds.',
+  RESUMING: 'Coming back from ADMIN or STANDBY into RUNNING.',
+  SUSPENDING: 'Finishing in-flight work before moving to ADMIN.',
+  FORCE_SUSPENDING: 'Moving to ADMIN without waiting for in-flight work to finish.',
+  SHUTTING_DOWN: 'Stopping gracefully. In-flight requests are allowed to complete.',
+  SUSPENDED: 'Present but not handing out work — a data source in this state refuses connections.',
+  OVERLOADED: 'Beyond its configured limits and refusing further work.',
+  SHUTDOWN: 'Stopped. Starting it needs a running Node Manager on its machine.',
+  FAILED: 'The server started but could not reach a usable state. Check the log for the first error.',
+  FAILED_NOT_RESTARTABLE: 'Failed and will not restart itself. It has to be started deliberately.',
+  UNKNOWN: 'No state was reported — usually the server is unreachable.',
+}
+
+const HEALTH_DESCRIPTIONS = {
+  OK: 'Reporting itself healthy.',
+  WARN: 'Working, but reporting a problem — worth reading the log.',
+  CRITICAL: 'A subsystem has failed. Traffic is likely affected.',
+  FAILED: 'The component has failed and is not serving.',
+  OVERLOADED: 'Refusing work because it is beyond its configured limits.',
+  UNKNOWN: 'No health was reported. Normal for a component that is not running.',
+}
+
 const label = computed(() => {
   if (props.kind === 'health') return healthOf(props.health)
   return (props.state || 'UNKNOWN').toUpperCase()
@@ -51,12 +89,20 @@ const tone = computed(() => {
   return TONE_CLASSES[table[label.value] || 'zinc']
 })
 
+const description = computed(() => {
+  const table = props.kind === 'health' ? HEALTH_DESCRIPTIONS : STATE_DESCRIPTIONS
+  const readable = label.value.replaceAll('_', ' ')
+  const text = table[label.value]
+  return text ? `${readable} — ${text}` : readable
+})
+
 const pulsing = computed(() => ['STARTING', 'RESUMING', 'SHUTTING_DOWN', 'SUSPENDING'].includes(label.value))
 </script>
 
 <template>
   <span
     :class="['inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', tone]"
+    :title="description"
   >
     <span :class="['h-1.5 w-1.5 rounded-full bg-current', pulsing && 'animate-pulse']" />
     {{ label.replaceAll('_', ' ') }}

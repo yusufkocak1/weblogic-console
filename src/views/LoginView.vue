@@ -6,6 +6,8 @@ import { useReconnect } from '@/composables/useReconnect'
 import { parseTarget } from '@/utils/target'
 import ErrorState from '@/components/ErrorState.vue'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
+import InfoTip from '@/components/InfoTip.vue'
 
 const connection = useConnectionStore()
 const router = useRouter()
@@ -137,10 +139,42 @@ async function switchTo(item) {
         New connection…
       </button>
 
+      <HelpPanel v-if="formVisible" id="login" title="What to enter here" default-open>
+        <p>
+          Connect with the <strong>AdminServer</strong> of the domain - not a managed server. Everything in this
+          console goes through it.
+        </p>
+        <ul class="list-disc space-y-1 pl-4">
+          <li>
+            <strong>Host and port</strong> are the AdminServer's admin listen address, usually port 7001 (7002 with
+            SSL). Already have a <code class="font-mono">t3://host:port</code> address from a WLST script? Paste it
+            into the host box and it splits itself into the fields.
+          </li>
+          <li>
+            <strong>Username</strong> needs a role that can read the management API - Monitor is enough to look
+            around, Operator or Admin to start and stop things.
+          </li>
+          <li>
+            <strong>Save this connection</strong> keeps the host, port and username on this machine for next time.
+            The password is never stored.
+          </li>
+        </ul>
+        <p>
+          If connecting fails, check that the AdminServer is up on that port and that the REST management interface is
+          enabled for the domain.
+        </p>
+      </HelpPanel>
+
       <form v-if="formVisible" class="card space-y-4 p-5" @submit.prevent="submit">
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="label" for="host">Host or IP</label>
+            <label class="label-row" for="host">
+              Host or IP
+              <InfoTip
+                heading="Host or IP"
+                text="Where the AdminServer listens. A hostname, an IPv4 or IPv6 address, or a whole t3:// URL pasted from a WLST script — a URL is split into host, port and SSL automatically."
+              />
+            </label>
             <input
               id="host"
               v-model="form.host"
@@ -153,18 +187,36 @@ async function switchTo(item) {
             />
           </div>
           <div>
-            <label class="label" for="port">Port</label>
+            <label class="label-row" for="port">
+              Port
+              <InfoTip
+                heading="Port"
+                text="The AdminServer's admin port: 7001 by default, or 7002 when the SSL port is used. T3 and HTTP share the same port, so a t3:// address gives you the right number."
+              />
+            </label>
             <input id="port" v-model.number="form.port" class="input" required type="number" min="1" max="65535" />
           </div>
         </div>
 
         <div>
-          <label class="label" for="username">Username</label>
+          <label class="label-row" for="username">
+            Username
+            <InfoTip
+              heading="Username"
+              text="A WebLogic account, not an operating-system one. It needs a role with access to the management API: Monitor to view, Operator or Admin to start and stop servers and applications."
+            />
+          </label>
           <input id="username" v-model="form.username" class="input" required autocomplete="username" />
         </div>
 
         <div>
-          <label class="label" for="password">Password</label>
+          <label class="label-row" for="password">
+            Password
+            <InfoTip
+              heading="Password"
+              text="Held by the local console process for this session only, so it can talk to the AdminServer for you. It is never written to disk and never saved with a profile."
+            />
+          </label>
           <div class="relative">
             <input
               id="password"
@@ -185,7 +237,13 @@ async function switchTo(item) {
         </div>
 
         <div>
-          <label class="label" for="name">Name <span class="font-normal text-zinc-400">(optional)</span></label>
+          <label class="label-row" for="name">
+            Name <span class="font-normal text-zinc-400">(optional)</span>
+            <InfoTip
+              heading="Name"
+              text="A label for this connection, so several open domains are easy to tell apart in the switcher. Defaults to the domain name reported by the AdminServer."
+            />
+          </label>
           <input id="name" v-model="form.name" class="input" placeholder="Production · Ankara" autocomplete="off" />
         </div>
 
@@ -193,6 +251,10 @@ async function switchTo(item) {
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input v-model="form.ssl" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
             Use SSL (https)
+            <InfoTip
+              heading="Use SSL"
+              text="Talk to the admin port over https instead of http. Turn it on only if the domain has its SSL listen port enabled — usually 7002. The address preview below shows the URL that will be called."
+            />
           </label>
           <label
             v-if="form.ssl"
@@ -205,8 +267,17 @@ async function switchTo(item) {
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input v-model="form.save" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
             Save this connection
+            <InfoTip
+              heading="Save this connection"
+              text="Stores the host, port, username and name on this machine so the domain is one click away next time. The password is never included — you enter it once per console restart."
+            />
           </label>
-          <p class="break-all font-mono text-xs text-zinc-400 dark:text-zinc-500">{{ previewUrl }}</p>
+          <p
+            class="break-all font-mono text-xs text-zinc-400 dark:text-zinc-500"
+            title="The management API URL these fields build. This is exactly what the console will call."
+          >
+            {{ previewUrl }}
+          </p>
           <p class="text-xs text-zinc-400 dark:text-zinc-500">
             Paste a <code class="font-mono">t3://</code> address and it is split into these fields — T3 and HTTP share
             the admin port.

@@ -42,6 +42,14 @@ const routes = [
       },
       { path: 'jms', name: 'jms', component: () => import('@/views/JmsView.vue'), meta: { title: 'JMS' } },
       {
+        // The category is part of the path, and which server or data source is
+        // being configured rides in ?name= — so a page can be linked to.
+        path: 'configuration/:category?',
+        name: 'configuration',
+        component: () => import('@/views/ConfigurationView.vue'),
+        meta: { title: 'Configuration' },
+      },
+      {
         path: 'monitoring',
         name: 'monitoring',
         component: () => import('@/views/MonitoringView.vue'),

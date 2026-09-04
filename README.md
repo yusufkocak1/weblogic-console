@@ -183,11 +183,12 @@ src/
     weblogic.js             one function per WebLogic endpoint / search payload
   stores/
     connection.js           live connections, saved profiles, active target
-    ui.js                   theme, refresh interval, toasts
+    ui.js                   theme, refresh interval, hint visibility, toasts
   composables/
     useResource.js          load + auto-refresh + abort + reload on domain switch
     useReconnect.js         password prompt for bringing a saved profile back
-  components/               AppShell, DataTable, StateBadge, MeterBar, …
+  components/               AppShell, DataTable, StateBadge, MeterBar,
+                            InfoTip and HelpPanel (the in-app help), …
   views/                    one view per console section
   utils/format.js           bytes, durations, health/target normalisation
   utils/target.js           parses t3:// and host:port addresses into fields
@@ -223,6 +224,11 @@ Across every page:
   what the operation actually does before you commit to it.
 - **Actionable errors** — connection failures are translated into what to check,
   not just an error code.
+- **Built-in help.** Every page opens with a collapsible *how this page works*
+  panel, and the ⓘ next to a field, a column header or a metric explains what
+  that number means and what to do when it looks wrong. The ⓘ button in the top
+  bar hides all of it once you no longer need it; the choice is remembered per
+  browser, as is each panel's open state.
 
 > Starting a stopped managed server requires a running Node Manager on its
 > machine. That is a WebLogic requirement, not a limitation of this console.

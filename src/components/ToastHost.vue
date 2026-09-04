@@ -31,6 +31,7 @@ const tones = {
           <button
             class="rounded p-1 text-lg leading-none opacity-60 transition hover:opacity-100"
             aria-label="Dismiss"
+            :title="toast.tone === 'error' ? 'Dismiss — failures stay until you close them' : 'Dismiss'"
             @click="ui.dismiss(toast.id)"
           >
             &times;

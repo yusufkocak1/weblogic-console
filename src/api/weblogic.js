@@ -169,6 +169,45 @@ export function applicationRuntimes(options) {
   )
 }
 
+/**
+ * The state the classic console shows for a deployment — ACTIVE, ADMIN,
+ * PREPARED, NEW, FAILED, RETIRED. It is an action on the deployment runtime
+ * rather than a readable attribute, so there is no way to ask for the whole
+ * table at once; `deploymentStates` batches the calls instead.
+ */
+export function deploymentState(app, target, options) {
+  return post(
+    `/domainRuntime/deploymentManager/appDeploymentRuntimes/${encodeURIComponent(app)}/getState`,
+    target ? { target } : {},
+    options,
+  )
+}
+
+/** Resolves the state of many applications, a few requests at a time. */
+export async function deploymentStates(names, options) {
+  const queue = [...names]
+  const states = new Map()
+
+  async function worker() {
+    while (queue.length) {
+      const name = queue.shift()
+      try {
+        const response = await deploymentState(name, undefined, options)
+        const state = response?.return ?? response
+        if (typeof state === 'string' && state) states.set(name, state.toUpperCase())
+      } catch (err) {
+        // An abort or a dead session concerns every call, not just this one.
+        if (err?.name === 'AbortError' || err?.isAuthError) throw err
+        // Anything else means this deployment has no runtime to ask, which the
+        // caller renders from the per-server application runtimes instead.
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker))
+  return states
+}
+
 /** action is 'start' or 'stop'; targets restricts the operation to given servers. */
 export function deploymentAction(app, action, targets, options) {
   const body = targets?.length ? { targets } : {}

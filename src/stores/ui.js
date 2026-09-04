@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 const THEME_KEY = 'wl-console.theme'
 const REFRESH_KEY = 'wl-console.refresh'
+const HELP_KEY = 'wl-console.help'
 
 export const REFRESH_OPTIONS = [
   { label: 'Off', value: 0 },
@@ -16,6 +17,15 @@ function readTheme() {
     return localStorage.getItem(THEME_KEY) || 'dark'
   } catch {
     return 'dark'
+  }
+}
+
+/** Hints are on by default: the console is easier to learn with them. */
+function readHelp() {
+  try {
+    return localStorage.getItem(HELP_KEY) !== '0'
+  } catch {
+    return true
   }
 }
 
@@ -34,6 +44,7 @@ export const useUiStore = defineStore('ui', {
   state: () => ({
     theme: readTheme(),
     refreshMs: readRefresh(),
+    helpVisible: readHelp(),
     sidebarOpen: false,
     toasts: [],
   }),
@@ -64,6 +75,19 @@ export const useUiStore = defineStore('ui', {
       } catch {
         /* storage disabled */
       }
+    },
+
+    setHelp(visible) {
+      this.helpVisible = visible
+      try {
+        localStorage.setItem(HELP_KEY, visible ? '1' : '0')
+      } catch {
+        /* storage disabled — hints come back next visit */
+      }
+    },
+
+    toggleHelp() {
+      this.setHelp(!this.helpVisible)
     },
 
     notify(toast) {

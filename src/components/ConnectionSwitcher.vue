@@ -58,6 +58,7 @@ function go(route) {
       class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
       :aria-expanded="open"
       aria-haspopup="menu"
+      title="The domain every page is showing. Click to switch to another open AdminServer, add one, or manage saved connections."
       @click="open = !open"
     >
       <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-indigo-600 text-sm font-bold text-white">

@@ -1,8 +1,12 @@
 <script setup>
+import InfoTip from '@/components/InfoTip.vue'
+
 defineProps({
   label: { type: String, required: true },
   value: { type: [String, Number], default: '—' },
   hint: { type: String, default: '' },
+  /** Longer explanation behind an "i" icon, for numbers that need context. */
+  info: { type: String, default: '' },
   tone: { type: String, default: 'default' }, // default | good | warn | bad
 })
 
@@ -16,7 +20,10 @@ const TONES = {
 
 <template>
   <div class="card p-4">
-    <p class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{{ label }}</p>
+    <p class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      {{ label }}
+      <InfoTip v-if="info" :heading="label" :text="info" :label="`What ${label} means`" />
+    </p>
     <p :class="['mt-1.5 text-2xl font-semibold tabular-nums', TONES[tone]]">{{ value }}</p>
     <p v-if="hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{{ hint }}</p>
     <slot />

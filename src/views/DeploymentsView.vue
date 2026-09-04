@@ -3,11 +3,12 @@ import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
 import { useResource } from '@/composables/useResource'
 import { useUiStore } from '@/stores/ui'
-import { healthOf, items, targetNames } from '@/utils/format'
+import { baseAppName, healthOf, items, targetNames } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
 
 const ui = useUiStore()
 const confirm = ref(null)
@@ -19,25 +20,48 @@ const { data, error, loading, refreshing, lastUpdated, reload } = useResource(as
     wls.applicationRuntimes({ signal }),
     wls.libraries({ signal }),
   ])
-  return { configs, runtimes, libs }
+  // The state column has to agree with the classic console, and the only place
+  // that answer exists is the deployment runtime's getState action — one call
+  // per application, run a few at a time.
+  const states = await wls.deploymentStates(
+    items(configs).map((config) => config.name).filter(Boolean),
+    { signal },
+  )
+  return { configs, runtimes, libs, states }
 })
 
 /** app name -> [{server, health}] built from every server's applicationRuntimes. */
 const runtimeIndex = computed(() => {
   const index = new Map()
+  const add = (key, entry) => {
+    if (!key) return
+    const list = index.get(key)
+    if (!list) index.set(key, [entry])
+    else if (!list.some((e) => e.server === entry.server)) list.push(entry)
+  }
   for (const server of items(data.value?.runtimes?.serverRuntimes)) {
     for (const app of items(server.applicationRuntimes)) {
-      const key = app.applicationName || app.name
-      if (!index.has(key)) index.set(key, [])
-      index.get(key).push({ server: server.name, health: healthOf(app.healthState) })
+      const entry = { server: server.name, health: healthOf(app.healthState) }
+      // One running application answers to several names: the MBean's own name,
+      // the application name without its version, and the two joined by a '#'.
+      // The configuration side may use any of them, so index all of them —
+      // otherwise a versioned deployment looks like it is running nowhere.
+      const appName = app.applicationName || app.name
+      add(app.name, entry)
+      add(appName, entry)
+      add(baseAppName(app.name), entry)
+      if (app.applicationVersion) add(`${appName}#${app.applicationVersion}`, entry)
     }
   }
   return index
 })
 
-const rows = computed(() =>
-  items(data.value?.configs).map((config) => {
-    const running = runtimeIndex.value.get(config.name) || []
+const instancesOf = (name) => runtimeIndex.value.get(name) || runtimeIndex.value.get(baseAppName(name)) || []
+
+const rows = computed(() => {
+  const states = data.value?.states
+  return items(data.value?.configs).map((config) => {
+    const running = instancesOf(config.name)
     const targets = targetNames(config.targets)
     return {
       name: config.name,
@@ -46,13 +70,17 @@ const rows = computed(() =>
       sourcePath: config.sourcePath || config.absoluteSourcePath || '—',
       staging: config.stagingMode || 'nostage',
       activeOn: running.map((r) => r.server),
+      // WebLogic's own answer when it gives one; a deployment that is running
+      // somewhere is at least serving, so fall back to that rather than
+      // claiming it is not deployed.
+      state: states?.get(config.name) || (running.length ? 'ACTIVE' : null),
       // Any unhealthy instance decides the row's health: that is what an
       // operator needs to notice first.
       health: running.length ? (running.find((r) => r.health !== 'OK')?.health ?? 'OK') : null,
       targetList: targets,
     }
-  }),
-)
+  })
+})
 
 const libraries = computed(() =>
   items(data.value?.libs).map((lib) => ({
@@ -64,19 +92,47 @@ const libraries = computed(() =>
 )
 
 const COLUMNS = [
-  { key: 'name', label: 'Application' },
-  { key: 'health', label: 'State' },
-  { key: 'moduleType', label: 'Type' },
-  { key: 'targets', label: 'Targets' },
-  { key: 'staging', label: 'Staging' },
+  {
+    key: 'name',
+    label: 'Application',
+    hint: 'The deployment name, with the archive or directory it was deployed from underneath.',
+  },
+  {
+    key: 'state',
+    label: 'State',
+    hint: 'The state WebLogic reports for the deployment — Active means it is serving requests. Next to it: the health of the running instances when it is not OK, and how many servers the application runs on. "Not active" means WebLogic reports no running instance at all — usually because its target servers are down.',
+  },
+  {
+    key: 'moduleType',
+    label: 'Type',
+    hint: 'What kind of module this is: war for a web application, ear for an enterprise application, jar for an EJB module, and so on.',
+  },
+  {
+    key: 'targets',
+    label: 'Targets',
+    hint: 'The servers and clusters the application is deployed to. Start and Stop act on all of them at once.',
+  },
+  {
+    key: 'staging',
+    label: 'Staging',
+    hint: 'How the archive reaches each server: stage copies it to the server, nostage leaves it on a shared path that every server must be able to read, external_stage means you copy it yourself.',
+  },
   { key: 'actions', label: '', sortable: false, align: 'right' },
 ]
 
 const LIB_COLUMNS = [
-  { key: 'name', label: 'Library' },
-  { key: 'version', label: 'Version' },
-  { key: 'targets', label: 'Targets' },
-  { key: 'sourcePath', label: 'Source' },
+  {
+    key: 'name',
+    label: 'Library',
+    hint: 'Shared libraries are referenced by applications rather than served themselves. An application that references a missing library will not start.',
+  },
+  {
+    key: 'version',
+    label: 'Version',
+    hint: 'Specification / implementation version. Applications can pin a specific version, so several versions of one library may be deployed side by side.',
+  },
+  { key: 'targets', label: 'Targets', hint: 'The servers and clusters this library is deployed to.' },
+  { key: 'sourcePath', label: 'Source', hint: 'Where the library archive was deployed from.' },
 ]
 
 async function runAction(row, action) {
@@ -112,8 +168,27 @@ async function runAction(row, action) {
       subtitle="Applications and shared libraries in this domain"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
+      help="Applications already deployed to this domain, and the shared libraries they can reference. You can start and stop deployments here; installing a new one still needs WLST or the classic console."
       @refresh="reload"
     />
+
+    <HelpPanel id="deployments" title="How to stop and restart an application">
+      <ol class="list-decimal space-y-1 pl-4">
+        <li>
+          <strong>Stop</strong> takes the application out of service on every one of its targets. Clients get a 404
+          from that point on, and any session state in it is gone.
+        </li>
+        <li><strong>Start</strong> puts it back into service on the same targets. Together they are a restart.</li>
+        <li>
+          The <strong>State</strong> column shows the state WebLogic reports for the deployment, plus the health of
+          its running instances when that is not OK. It can take a few seconds to catch up after either action.
+        </li>
+      </ol>
+      <p>
+        An application that shows <em>Not active</em> is deployed but running nowhere — check that its target servers
+        are up on the Servers page before assuming the deployment is broken.
+      </p>
+    </HelpPanel>
 
     <DataTable
       :columns="COLUMNS"
@@ -122,6 +197,7 @@ async function runAction(row, action) {
       :error="error && !data ? error : null"
       empty-text="Nothing is deployed to this domain."
       search-placeholder="Filter applications…"
+      search-hint="Matches the application name, type, targets and staging mode of the rows already loaded."
       @retry="reload"
     >
       <template #cell:name="{ row }">
@@ -131,20 +207,37 @@ async function runAction(row, action) {
         </div>
       </template>
 
-      <template #cell:health="{ row }">
-        <div v-if="!row.activeOn.length" class="text-xs text-zinc-400">Not active</div>
-        <div v-else class="flex items-center gap-2">
-          <StateBadge kind="health" :health="row.health" />
-          <span class="text-xs text-zinc-400 dark:text-zinc-500">on {{ row.activeOn.length }}</span>
+      <template #cell:state="{ row }">
+        <div class="flex flex-wrap items-center gap-2">
+          <StateBadge v-if="row.state" :state="row.state" />
+          <span v-else class="text-xs text-zinc-400">Not active</span>
+          <StateBadge v-if="row.health && row.health !== 'OK'" kind="health" :health="row.health" />
+          <span
+            v-if="row.activeOn.length"
+            class="text-xs text-zinc-400 dark:text-zinc-500"
+            :title="`Running on ${row.activeOn.join(', ')}`"
+          >
+            on {{ row.activeOn.length }}
+          </span>
         </div>
       </template>
 
       <template #cell:actions="{ row }">
         <div class="flex justify-end gap-1.5">
-          <button class="btn btn-ghost px-2 py-1 text-xs" :disabled="busyApp === row.name" @click="runAction(row, 'start')">
+          <button
+            class="btn btn-ghost px-2 py-1 text-xs"
+            title="Put this application back into service on all of its targets"
+            :disabled="busyApp === row.name"
+            @click="runAction(row, 'start')"
+          >
             Start
           </button>
-          <button class="btn btn-danger px-2 py-1 text-xs" :disabled="busyApp === row.name" @click="runAction(row, 'stop')">
+          <button
+            class="btn btn-danger px-2 py-1 text-xs"
+            title="Take this application out of service on all of its targets — clients stop being served immediately"
+            :disabled="busyApp === row.name"
+            @click="runAction(row, 'stop')"
+          >
             Stop
           </button>
         </div>
@@ -154,6 +247,9 @@ async function runAction(row, action) {
     <template v-if="libraries.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         Shared libraries
+        <span class="ml-1 font-normal normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
+          — code that applications reference instead of bundling; they have no lifecycle buttons of their own
+        </span>
       </h2>
       <DataTable :columns="LIB_COLUMNS" :rows="libraries" :searchable="false" dense>
         <template #cell:sourcePath="{ row }">

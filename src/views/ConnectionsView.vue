@@ -8,6 +8,7 @@ import { datetime } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
@@ -131,13 +132,41 @@ async function remove(row) {
 
 <template>
   <div>
-    <PageHeader title="Connections" subtitle="Saved domains and the ones currently open">
+    <PageHeader
+      title="Connections"
+      subtitle="Saved domains and the ones currently open"
+      help="Every AdminServer you have saved or opened. Several can be connected at once; the one marked Active is the domain every other page is showing."
+    >
       <template #actions>
-        <button class="btn btn-primary" @click="router.push({ name: 'login', query: { add: '1' } })">
+        <button
+          class="btn btn-primary"
+          title="Open the connect form to add another AdminServer, keeping the ones already open"
+          @click="router.push({ name: 'login', query: { add: '1' } })"
+        >
           Add connection
         </button>
       </template>
     </PageHeader>
+
+    <HelpPanel id="connections" title="What the buttons on each row do">
+      <ul class="list-disc space-y-1 pl-4">
+        <li>
+          <strong>Connect</strong> opens a saved profile. It asks for the password, because passwords are never
+          stored.
+        </li>
+        <li>
+          <strong>Switch to</strong> makes an already-open connection the active one - every page then shows that
+          domain. The connections you switch away from stay open.
+        </li>
+        <li>
+          <strong>Close</strong> drops the live connection and forgets its password. The saved profile stays, so you
+          can connect again later.
+        </li>
+        <li><strong>Forget</strong> deletes the saved profile from this machine. Nothing on the server changes.</li>
+        <li><strong>rename</strong> next to the name gives a connection a label of your own, such as "Prod - Ankara".</li>
+      </ul>
+      <p>The dot on the left is green for active, grey for open but not active, and hollow for not connected.</p>
+    </HelpPanel>
 
     <div v-if="!rows.length" class="card p-10 text-center text-sm text-zinc-400">
       No saved connections yet.
@@ -184,6 +213,7 @@ async function remove(row) {
             <button
               v-if="row.profile"
               class="text-xs text-zinc-400 underline-offset-2 hover:text-zinc-700 hover:underline dark:hover:text-zinc-200"
+              title="Give this connection a name of your own, such as Prod · Ankara"
               @click="startRename(row)"
             >
               rename
@@ -202,6 +232,7 @@ async function remove(row) {
           <button
             v-if="row.live && !row.active"
             class="btn btn-primary px-2 py-1 text-xs"
+            title="Make this the active domain — every page switches to it. Other connections stay open."
             :disabled="busyId === row.key"
             @click="activate(row)"
           >
@@ -210,13 +241,28 @@ async function remove(row) {
           <button
             v-else-if="!row.live"
             class="btn btn-ghost px-2 py-1 text-xs"
+            title="Open this saved profile — you will be asked for the password"
             :disabled="busyId === row.key"
             @click="connect(row)"
           >
             Connect
           </button>
-          <button v-if="row.live" class="btn btn-ghost px-2 py-1 text-xs" @click="close(row)">Close</button>
-          <button v-if="row.profile" class="btn btn-danger px-2 py-1 text-xs" @click="remove(row)">Forget</button>
+          <button
+            v-if="row.live"
+            class="btn btn-ghost px-2 py-1 text-xs"
+            title="Drop this connection and forget its password. The saved profile is kept."
+            @click="close(row)"
+          >
+            Close
+          </button>
+          <button
+            v-if="row.profile"
+            class="btn btn-danger px-2 py-1 text-xs"
+            title="Delete this saved profile from this machine. Nothing on the server is affected."
+            @click="remove(row)"
+          >
+            Forget
+          </button>
         </div>
       </li>
     </ul>

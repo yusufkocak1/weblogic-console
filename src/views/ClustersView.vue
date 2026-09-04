@@ -6,6 +6,8 @@ import { items, num, targetNames } from '@/utils/format'
 import PageHeader from '@/components/PageHeader.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import ErrorState from '@/components/ErrorState.vue'
+import HelpPanel from '@/components/HelpPanel.vue'
+import InfoTip from '@/components/InfoTip.vue'
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [configs, runtimes, snapshot] = await Promise.all([
@@ -55,8 +57,28 @@ const clusters = computed(() => {
       subtitle="Membership and replication state"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
+      help="One card per configured cluster: who its members are, how many of them are alive, and how much session replication is going on between them."
       @refresh="reload"
     />
+
+    <HelpPanel id="clusters" title="How to read a cluster card">
+      <ul class="list-disc space-y-1 pl-4">
+        <li><strong>Alive</strong> is the headline number: members reachable / members configured.</li>
+        <li>
+          <strong>Primaries</strong> and <strong>Secondaries</strong> are replicated HTTP sessions. Sessions have a
+          primary copy on one member and a backup on another, so a member can fail without logging users out.
+        </li>
+        <li>
+          <strong>Resends</strong> should stay near zero. A number that keeps climbing means cluster members are losing
+          each other's messages — usually a network or multicast problem.
+        </li>
+        <li>The badges at the bottom are the live state of each member; click through to Servers to act on one.</li>
+      </ul>
+      <p>
+        There is no domain-wide cluster runtime in WebLogic: each member reports its own view, and these figures are
+        that view combined.
+      </p>
+    </HelpPanel>
 
     <ErrorState v-if="error && !data" :error="error" @retry="reload" />
     <div v-else-if="loading && !clusters.length" class="card p-8 text-center text-sm text-zinc-400">Loading…</div>
@@ -71,26 +93,41 @@ const clusters = computed(() => {
             <h2 class="font-semibold text-zinc-900 dark:text-zinc-50">{{ cluster.name }}</h2>
             <p class="mt-0.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ cluster.address }}</p>
           </div>
-          <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+          <span
+            class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+            title="How members find and talk to each other: unicast (direct TCP, the usual choice) or multicast (UDP group, needs multicast enabled on the network)."
+          >
             {{ cluster.messagingMode }}
           </span>
         </div>
 
         <dl class="mt-4 grid grid-cols-4 gap-3 text-sm">
           <div>
-            <dt class="text-xs text-zinc-400 dark:text-zinc-500">Alive</dt>
+            <dt class="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+              Alive
+              <InfoTip heading="Alive" text="Members currently reachable, out of the members configured for this cluster. Anything below the total means a member is down or cannot be reached." />
+            </dt>
             <dd class="tabular-nums font-medium">{{ num(cluster.alive) }} / {{ cluster.members.length }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-zinc-400 dark:text-zinc-500">Primaries</dt>
+            <dt class="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+              Primaries
+              <InfoTip heading="Primaries" text="HTTP sessions whose primary copy lives on a member of this cluster. Roughly, the sessions this cluster is actively serving." />
+            </dt>
             <dd class="tabular-nums font-medium">{{ num(cluster.primaries) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-zinc-400 dark:text-zinc-500">Secondaries</dt>
+            <dt class="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+              Secondaries
+              <InfoTip heading="Secondaries" text="Backup copies of sessions held for other members. Zero across a multi-member cluster means session replication is not working." />
+            </dt>
             <dd class="tabular-nums font-medium">{{ num(cluster.secondaries) }}</dd>
           </div>
           <div>
-            <dt class="text-xs text-zinc-400 dark:text-zinc-500">Resends</dt>
+            <dt class="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
+              Resends
+              <InfoTip heading="Resends" text="Cluster messages that had to be sent again. It should stay at or near zero; a rising count points at a congested or lossy network." />
+            </dt>
             <dd class="tabular-nums font-medium">{{ num(cluster.resends) }}</dd>
           </div>
         </dl>
@@ -100,6 +137,7 @@ const clusters = computed(() => {
             v-for="member in cluster.members"
             :key="member"
             class="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-800"
+            :title="`${member} — current state of this cluster member. Manage it on the Servers page.`"
           >
             {{ member }}
             <StateBadge :state="cluster.states.get(member) || 'SHUTDOWN'" />
