@@ -55,11 +55,23 @@ Open <http://127.0.0.1:7101>, enter your AdminServer details, and connect:
 
 | Field    | Example     | Notes                                              |
 | -------- | ----------- | -------------------------------------------------- |
-| Host/IP  | `10.0.0.12` | Hostname or IP of the **AdminServer**               |
+| Host/IP  | `10.0.0.12` | Hostname or IP of the **AdminServer** — a `t3://` URL can be pasted here |
 | Port     | `7001`      | The admin listen port (`7002` for the SSL port)     |
 | Username | `weblogic`  | Any user in a role that can read the domain         |
 | Password | —           | Held in the local process only, never stored        |
 | SSL      | off         | Turn on for an HTTPS admin port                     |
+
+### Already have a t3 address?
+
+Paste it into the host field and it is split for you. WebLogic multiplexes T3
+and HTTP on the same listen port, so the port carries straight over to the REST
+API — only the scheme has to go:
+
+| Your WLST address              | What the console uses                          |
+| ------------------------------ | ---------------------------------------------- |
+| `t3://10.0.0.12:7001`          | host `10.0.0.12`, port `7001`, SSL off          |
+| `t3s://wls.corp.local:7002`    | host `wls.corp.local`, port `7002`, SSL on      |
+| `t3://ms1:7001,ms2:7001`       | the first entry — connect to the AdminServer    |
 
 Connections you make are saved so you can come back to them in one click —
 see [Multiple domains](#multiple-domains). Passwords are never saved.
@@ -178,6 +190,7 @@ src/
   components/               AppShell, DataTable, StateBadge, MeterBar, …
   views/                    one view per console section
   utils/format.js           bytes, durations, health/target normalisation
+  utils/target.js           parses t3:// and host:port addresses into fields
 ```
 
 The backend depends on nothing but Node's standard library. The front end
@@ -264,6 +277,7 @@ common ones:
 | *The AdminServer uses a self-signed certificate* | Enable "trust self-signed certificate"                                        |
 | *Invalid username or password*                   | WebLogic rejected the credentials                                             |
 | *REST management API not found*                  | Something answered, but it is not an AdminServer — or you hit a managed server's port |
+| *Invalid host*                                   | The host field still holds a URL fragment. A `t3://` address is fine; a path or a space is not |
 | *Port 7101 is already in use*                    | Another copy is running. Stop it or use `WLC_PORT`                            |
 
 Other things worth knowing:

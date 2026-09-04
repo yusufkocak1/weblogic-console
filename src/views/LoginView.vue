@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
 import { useReconnect } from '@/composables/useReconnect'
+import { parseTarget } from '@/utils/target'
 import ErrorState from '@/components/ErrorState.vue'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
 
@@ -45,7 +46,20 @@ function done() {
   router.replace(addingAnother.value ? { name: 'dashboard' } : route.query.redirect || { name: 'dashboard' })
 }
 
+/**
+ * Operators paste the address they already have, which is almost always a t3
+ * URL from a WLST script. Split it into the fields instead of making them do it.
+ */
+function normalizeHost() {
+  const parsed = parseTarget(form.host)
+  if (!parsed) return
+  form.host = parsed.host
+  if (parsed.port) form.port = parsed.port
+  if (parsed.ssl !== undefined) form.ssl = parsed.ssl
+}
+
 async function submit() {
+  normalizeHost()
   error.value = null
   try {
     await connection.connect(form)
@@ -127,7 +141,16 @@ async function switchTo(item) {
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="label" for="host">Host or IP</label>
-            <input id="host" v-model="form.host" class="input" required autocomplete="off" placeholder="10.0.0.12" />
+            <input
+              id="host"
+              v-model="form.host"
+              class="input"
+              required
+              autocomplete="off"
+              placeholder="10.0.0.12 or t3://10.0.0.12:7001"
+              @blur="normalizeHost"
+              @paste="$nextTick(normalizeHost)"
+            />
           </div>
           <div>
             <label class="label" for="port">Port</label>
@@ -184,6 +207,10 @@ async function switchTo(item) {
             Save this connection
           </label>
           <p class="break-all font-mono text-xs text-zinc-400 dark:text-zinc-500">{{ previewUrl }}</p>
+          <p class="text-xs text-zinc-400 dark:text-zinc-500">
+            Paste a <code class="font-mono">t3://</code> address and it is split into these fields — T3 and HTTP share
+            the admin port.
+          </p>
         </div>
 
         <ErrorState v-if="error" :error="error" @retry="submit" />

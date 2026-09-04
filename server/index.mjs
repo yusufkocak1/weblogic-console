@@ -281,9 +281,28 @@ function normalizeUpstreamError(err) {
 
 // ---------------------------------------------------------------- connections
 
+/**
+ * Hosts are routinely pasted as `t3://host:7001` — that is the address people
+ * already have in WLST scripts. The UI splits those into fields, but a direct
+ * API caller might not, and `http://t3://host:7001` is not a URL. T3 and HTTP
+ * share the listen port, so only the scheme and any trailing port have to go.
+ */
+function sanitiseHost(value) {
+  let host = String(value || '').trim()
+  host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+  host = host.split(',')[0].split(/[/?#]/)[0]
+  const at = host.lastIndexOf('@')
+  if (at >= 0) host = host.slice(at + 1)
+  // A trailing :port is dropped; the port field is authoritative. IPv6 keeps
+  // its colons because the pattern only matches a single one.
+  const withPort = host.match(/^([^:]+):\d+$/)
+  if (withPort) host = withPort[1]
+  return host.trim()
+}
+
 async function handleCreateConnection(req, res) {
   const payload = await readJson(req)
-  const host = String(payload.host || '').trim()
+  const host = sanitiseHost(payload.host)
   const port = Number(payload.port)
   const ssl = Boolean(payload.ssl)
   const insecure = Boolean(payload.insecure)
@@ -292,6 +311,9 @@ async function handleCreateConnection(req, res) {
   const save = payload.save !== false
 
   if (!host) return sendError(res, 400, 'Host is required')
+  if (/[\s\\]/.test(host)) {
+    return sendError(res, 400, 'Invalid host', 'Enter a hostname or IP address, for example 10.0.0.12.')
+  }
   if (!Number.isInteger(port) || port < 1 || port > 65535) return sendError(res, 400, 'Port must be between 1 and 65535')
   if (!username) return sendError(res, 400, 'Username is required')
 
