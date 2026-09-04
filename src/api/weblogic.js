@@ -184,6 +184,18 @@ export function deploymentState(app, target, options) {
   )
 }
 
+/**
+ * The runtime side answers with the AppRuntimeStateRuntime constants —
+ * `STATE_ACTIVE`, `STATE_RETIRED`, `STATE_PREPARED` and so on — while the rest
+ * of the console works in the bare names the console shows. Stripping the
+ * prefix is what makes a retired deployment read as RETIRED instead of falling
+ * through as a state nothing recognises.
+ */
+export function normaliseDeploymentState(value) {
+  if (typeof value !== 'string') return null
+  return value.trim().toUpperCase().replace(/^STATE_/, '') || null
+}
+
 /** Resolves the state of many applications, a few requests at a time. */
 export async function deploymentStates(names, options) {
   const queue = [...names]
@@ -194,8 +206,8 @@ export async function deploymentStates(names, options) {
       const name = queue.shift()
       try {
         const response = await deploymentState(name, undefined, options)
-        const state = response?.return ?? response
-        if (typeof state === 'string' && state) states.set(name, state.toUpperCase())
+        const state = normaliseDeploymentState(response?.return ?? response)
+        if (state) states.set(name, state)
       } catch (err) {
         // An abort or a dead session concerns every call, not just this one.
         if (err?.name === 'AbortError' || err?.isAuthError) throw err

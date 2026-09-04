@@ -7,7 +7,7 @@ import { useResource } from '@/composables/useResource'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
-import { baseAppName, healthOf, items, targetNames } from '@/utils/format'
+import { healthOf, isDeploymentRuntime, items, targetNames } from '@/utils/format'
 import { curlFor, curlForDeploymentAction, wlstForDeploymentAction, wlstForUndeploy } from '@/utils/wlst'
 import PageHeader from '@/components/PageHeader.vue'
 import StateBadge from '@/components/StateBadge.vue'
@@ -44,23 +44,24 @@ const { data, refreshing, lastUpdated, reload } = useResource(async ({ signal })
 const configured = computed(() => items(data.value?.configs).find((config) => config.name === name.value))
 const missing = computed(() => Boolean(data.value) && !configured.value)
 
-/** Every server this application is actually running on, with its health. */
+/** Every server this application is actually loaded on, with its health. */
 const instances = computed(() => {
-  const wanted = new Set([name.value, baseAppName(name.value)])
   const found = []
   for (const server of items(data.value?.runtimes?.serverRuntimes)) {
     for (const app of items(server.applicationRuntimes)) {
-      const names = [app.name, app.applicationName, baseAppName(app.name)].filter(Boolean)
-      if (names.some((candidate) => wanted.has(candidate)) && !found.some((f) => f.server === server.name)) {
-        found.push({ server: server.name, health: healthOf(app.healthState) })
-      }
+      if (!isDeploymentRuntime(name.value, app)) continue
+      if (found.some((f) => f.server === server.name)) continue
+      found.push({ server: server.name, health: healthOf(app.healthState) })
     }
   }
   return found
 })
 
 const targets = computed(() => targetNames(configured.value?.targets))
-const state = computed(() => data.value?.states?.get(name.value) || (instances.value.length ? 'ACTIVE' : null))
+// WebLogic's own answer only. A loaded runtime does not prove the deployment
+// is serving — a retired version keeps one while it drains its last sessions —
+// so an unanswered getState leaves the state UNKNOWN rather than ACTIVE.
+const state = computed(() => data.value?.states?.get(name.value) || (instances.value.length ? 'UNKNOWN' : null))
 const health = computed(() =>
   instances.value.length ? (instances.value.find((i) => i.health !== 'OK')?.health ?? 'OK') : null,
 )

@@ -17,6 +17,7 @@ const STATE_TONES = {
   DISTRIBUTED: 'amber',
   NEW: 'zinc',
   RETIRED: 'zinc',
+  NONEXISTENT: 'zinc',
   UPDATE_PENDING: 'sky',
   STARTING: 'sky',
   RESUMING: 'sky',
@@ -53,7 +54,8 @@ const STATE_DESCRIPTIONS = {
   PREPARED: 'Deployed and loaded on its targets, but not serving requests yet. Start it to make it active.',
   DISTRIBUTED: 'The archive has reached its targets but has not been prepared or started there.',
   NEW: 'Configured in the domain but not distributed to any target yet.',
-  RETIRED: 'A newer version took over. This one still finishes the sessions it already had.',
+  RETIRED: 'A newer version took over. This one still finishes the sessions it already had, so it may show running instances — it is not serving new requests.',
+  NONEXISTENT: 'WebLogic knows no deployment by this name on its targets.',
   UPDATE_PENDING: 'A deployment change is being applied. The state settles once it finishes.',
   ADMIN: 'Started, but only administration requests are accepted — application traffic is refused. Resume to bring it back.',
   STANDBY: 'Started and listening on the administration port only. It holds no application work yet.',
@@ -67,7 +69,7 @@ const STATE_DESCRIPTIONS = {
   SHUTDOWN: 'Stopped. Starting it needs a running Node Manager on its machine.',
   FAILED: 'The server started but could not reach a usable state. Check the log for the first error.',
   FAILED_NOT_RESTARTABLE: 'Failed and will not restart itself. It has to be started deliberately.',
-  UNKNOWN: 'No state was reported — usually the server is unreachable.',
+  UNKNOWN: 'No state was reported when asked — for a server that usually means it is unreachable.',
 }
 
 const HEALTH_DESCRIPTIONS = {

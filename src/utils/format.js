@@ -74,6 +74,36 @@ export function baseAppName(name) {
   return hash === -1 ? value : value.slice(0, hash)
 }
 
+/** The version of a versioned deployment name, or '' when it carries none. */
+export function appVersion(name) {
+  const value = String(name ?? '')
+  const hash = value.indexOf('#')
+  return hash === -1 ? '' : value.slice(hash + 1)
+}
+
+/**
+ * Whether an ApplicationRuntime belongs to the configured deployment `name`.
+ *
+ * Versioned deployments are why this cannot be a plain name comparison: every
+ * version of `myapp` reports `applicationName: 'myapp'`, so matching on the
+ * version-less name lets a retired version borrow the active version's runtimes
+ * and report itself as running. A versioned deployment therefore only matches a
+ * runtime carrying the same version; an unversioned one still matches loosely,
+ * because an archive can pick up a version from its manifest that the
+ * configuration name does not show.
+ */
+export function isDeploymentRuntime(name, app) {
+  if (!app) return false
+  const candidates = [app.name, app.applicationName].filter(Boolean)
+  const version = appVersion(name)
+  if (version) {
+    const runtimeVersion = app.applicationVersion || appVersion(app.name)
+    if (runtimeVersion !== version) return false
+    return candidates.some((candidate) => baseAppName(candidate) === baseAppName(name))
+  }
+  return candidates.some((candidate) => candidate === name || baseAppName(candidate) === name)
+}
+
 /** ServerRuntime healthState is an object in recent releases, a string in older ones. */
 export function healthOf(health) {
   if (!health) return 'UNKNOWN'

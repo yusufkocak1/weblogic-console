@@ -6,7 +6,7 @@ import { useResource } from '@/composables/useResource'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
-import { baseAppName, healthOf, items, targetNames } from '@/utils/format'
+import { healthOf, isDeploymentRuntime, items, targetNames } from '@/utils/format'
 import { curlFor, curlForDeploymentAction, wlstForDeploymentAction, wlstForUndeploy } from '@/utils/wlst'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
@@ -41,33 +41,25 @@ const { data, error, loading, refreshing, lastUpdated, reload } = useResource(as
   return { configs, runtimes, libs, states }
 })
 
-/** app name -> [{server, health}] built from every server's applicationRuntimes. */
-const runtimeIndex = computed(() => {
-  const index = new Map()
-  const add = (key, entry) => {
-    if (!key) return
-    const list = index.get(key)
-    if (!list) index.set(key, [entry])
-    else if (!list.some((e) => e.server === entry.server)) list.push(entry)
-  }
+/** Every server's application runtimes, flattened once for the row lookups. */
+const runtimeApps = computed(() => {
+  const list = []
   for (const server of items(data.value?.runtimes?.serverRuntimes)) {
-    for (const app of items(server.applicationRuntimes)) {
-      const entry = { server: server.name, health: healthOf(app.healthState) }
-      // One running application answers to several names: the MBean's own name,
-      // the application name without its version, and the two joined by a '#'.
-      // The configuration side may use any of them, so index all of them —
-      // otherwise a versioned deployment looks like it is running nowhere.
-      const appName = app.applicationName || app.name
-      add(app.name, entry)
-      add(appName, entry)
-      add(baseAppName(app.name), entry)
-      if (app.applicationVersion) add(`${appName}#${app.applicationVersion}`, entry)
-    }
+    for (const app of items(server.applicationRuntimes)) list.push({ server: server.name, app })
   }
-  return index
+  return list
 })
 
-const instancesOf = (name) => runtimeIndex.value.get(name) || runtimeIndex.value.get(baseAppName(name)) || []
+/** The servers a configured deployment is actually loaded on, with their health. */
+const instancesOf = (name) => {
+  const found = []
+  for (const { server, app } of runtimeApps.value) {
+    if (!isDeploymentRuntime(name, app)) continue
+    if (found.some((entry) => entry.server === server)) continue
+    found.push({ server, health: healthOf(app.healthState) })
+  }
+  return found
+}
 
 const rows = computed(() => {
   const states = data.value?.states
@@ -81,10 +73,11 @@ const rows = computed(() => {
       sourcePath: config.sourcePath || config.absoluteSourcePath || '—',
       staging: config.stagingMode || 'nostage',
       activeOn: running.map((r) => r.server),
-      // WebLogic's own answer when it gives one; a deployment that is running
-      // somewhere is at least serving, so fall back to that rather than
-      // claiming it is not deployed.
-      state: states?.get(config.name) || (running.length ? 'ACTIVE' : null),
+      // WebLogic's own answer, and nothing invented on top of it. A loaded
+      // runtime is not proof the deployment is serving — a retired version
+      // still has one while it drains its last sessions — so when the getState
+      // call gave no answer the state stays UNKNOWN rather than ACTIVE.
+      state: states?.get(config.name) || (running.length ? 'UNKNOWN' : null),
       // Any unhealthy instance decides the row's health: that is what an
       // operator needs to notice first.
       health: running.length ? (running.find((r) => r.health !== 'OK')?.health ?? 'OK') : null,
@@ -111,7 +104,7 @@ const COLUMNS = [
   {
     key: 'state',
     label: 'State',
-    hint: 'The state WebLogic reports for the deployment — Active means it is serving requests. Next to it: the health of the running instances when it is not OK, and how many servers the application runs on. "Not active" means WebLogic reports no running instance at all — usually because its target servers are down.',
+    hint: 'The state WebLogic reports for the deployment — Active means it is serving requests, Retired means a newer version took over and this one is only draining its last sessions. Next to it: the health of the loaded instances when it is not OK, and how many servers the application is loaded on. "Not active" means WebLogic reports no state and no instance at all — usually because its target servers are down.',
   },
   {
     key: 'moduleType',
@@ -284,12 +277,14 @@ function redeploy(row) {
         <li><strong>Start</strong> puts it back into service on the same targets. Together they are a restart.</li>
         <li>
           The <strong>State</strong> column shows the state WebLogic reports for the deployment, plus the health of
-          its running instances when that is not OK. It can take a few seconds to catch up after either action.
+          its loaded instances when that is not OK. It can take a few seconds to catch up after either action.
         </li>
       </ol>
       <p>
         An application that shows <em>Not active</em> is deployed but running nowhere — check that its target servers
-        are up on the Servers page before assuming the deployment is broken.
+        are up on the Servers page before assuming the deployment is broken. <em>Retired</em> is different: a newer
+        version of the same application took over, and this one is only finishing the sessions it already had. It
+        still shows the servers it is loaded on, but it serves no new requests.
       </p>
       <p>
         <strong>Deploy</strong> uploads a new archive and installs it. <strong>Redeploy</strong> replaces the archive
@@ -342,7 +337,7 @@ function redeploy(row) {
           <span
             v-if="row.activeOn.length"
             class="text-xs text-zinc-400 dark:text-zinc-500"
-            :title="`Running on ${row.activeOn.join(', ')}`"
+            :title="`Loaded on ${row.activeOn.join(', ')}`"
           >
             on {{ row.activeOn.length }}
           </span>
