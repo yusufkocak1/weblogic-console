@@ -222,7 +222,7 @@ async function undeploy() {
       <SettingsPanel
         :sections="['deployments']"
         :name="name"
-        intro="These settings describe how the application is deployed. Most of them are read when it is next deployed, so activate the change and then stop and start the application to apply it."
+        intro="These settings describe how the application is deployed, not what is inside it: anything from the archive's own descriptors — context roots, session timeouts, EJB pool sizes — is overridden with a deployment plan, which is set below. Most of these are read when the application is next deployed, so activate the change and then redeploy it, or stop and start it, to apply it."
       />
     </template>
 

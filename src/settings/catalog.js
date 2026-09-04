@@ -60,6 +60,13 @@ const SEVERITIES = [
   { value: 'Off', label: 'Off — write nothing to this destination' },
 ]
 
+/** Shared by the archive and its deployment plan: they stage the same three ways. */
+const STAGING_MODES = [
+  { value: 'stage', label: 'stage — copy it to each server' },
+  { value: 'nostage', label: 'nostage — every server reads the same path' },
+  { value: 'external_stage', label: 'external_stage — you place the files yourself' },
+]
+
 const ROTATION = [
   { value: 'none', label: 'Never rotate — one file that grows forever' },
   { value: 'bySize', label: 'By size — start a new file once it gets big' },
@@ -666,18 +673,20 @@ export const CATEGORIES = [
   {
     key: 'deployments',
     label: 'Deployments',
-    blurb: 'Start order, how the archive reaches the servers, and which deployment plan is used.',
+    blurb:
+      'Start order, how the archive and its plan reach the servers, which security model the application runs under, and where its files are.',
     groups: [
       {
         key: 'deployment',
-        title: 'Deployment settings',
-        description: 'How and in what order this application is deployed on its target servers.',
+        title: 'Order and staging',
+        description:
+          'When this application is deployed relative to the others, and how its files get to each target server.',
         path: deploymentPath,
         fields: [
           {
             attr: 'deploymentOrder',
             label: 'Deployment order',
-            help: 'Lower numbers deploy first and 100 is the default. Use it when one application has to be up before another can initialise.',
+            help: 'Lower numbers deploy first and 100 is the default. Use it when one application has to be up before another can initialise — a shared service before the applications that call it, say.',
             type: 'number',
             min: 0,
             impact: 'nextStart',
@@ -685,31 +694,155 @@ export const CATEGORIES = [
           {
             attr: 'stagingMode',
             label: 'How the archive reaches the servers',
-            help: 'stage copies the archive to each server before deploying, which is what you want when servers live on different machines. nostage deploys from the same path on every server, so the file has to exist there — typically a shared mount.',
+            help: 'stage copies the archive to each server before deploying, which is what you want when servers live on different machines. nostage deploys from the same path on every server, so the file has to exist there — typically a shared mount. Getting this wrong shows up as a deployment that works on the AdminServer and fails everywhere else.',
             type: 'select',
-            options: [
-              { value: 'stage', label: 'stage — copy the archive to each server' },
-              { value: 'nostage', label: 'nostage — every server reads the same path' },
-              { value: 'external_stage', label: 'external_stage — you place the files yourself' },
-            ],
+            options: STAGING_MODES,
             impact: 'redeploy',
           },
           {
+            attr: 'planStagingMode',
+            label: 'How the plan reaches the servers',
+            help: 'The same choice for the deployment plan. Left empty it follows the archive, which is nearly always right; set it only when the plan lives somewhere the archive does not.',
+            type: 'select',
+            options: [{ value: '', label: 'Follow the archive (default)' }, ...STAGING_MODES],
+            impact: 'redeploy',
+          },
+        ],
+      },
+      {
+        key: 'plan',
+        title: 'Deployment plan and descriptors',
+        description:
+          'A plan is how the same archive runs in test and in production without being rebuilt: it overrides values in the descriptors that were packaged with it.',
+        path: deploymentPath,
+        fields: [
+          {
             attr: 'planPath',
             label: 'Deployment plan',
-            help: 'Optional plan XML that overrides descriptor values per environment. Empty means the archive is deployed exactly as it was built.',
+            help: 'Path to the plan XML that overrides descriptor values for this environment — JDBC names, EJB pool sizes, context roots. Empty means the archive is deployed exactly as it was built.',
             type: 'text',
             placeholder: 'empty — no plan',
             impact: 'redeploy',
             mono: true,
           },
           {
+            attr: 'planDir',
+            label: 'Plan directory',
+            help: 'Where the plan and any external descriptors it references live. Usually the directory holding the plan file; needed when a plan brings its own descriptor files with it.',
+            type: 'text',
+            placeholder: 'empty — the plan file’s own directory',
+            impact: 'redeploy',
+            mono: true,
+          },
+          {
+            attr: 'altDescriptorPath',
+            label: 'Alternate Java EE descriptor',
+            help: 'Deploys with a different application.xml or web.xml than the one inside the archive. Rare, and a deployment plan is usually the better answer — but it is how you deploy an archive you cannot rebuild.',
+            type: 'text',
+            placeholder: 'empty — use the descriptor in the archive',
+            impact: 'redeploy',
+            mono: true,
+          },
+          {
+            attr: 'altWLSDescriptorPath',
+            label: 'Alternate WebLogic descriptor',
+            help: 'The same thing for weblogic-application.xml or weblogic.xml — the WebLogic-specific half of the configuration.',
+            type: 'text',
+            placeholder: 'empty — use the descriptor in the archive',
+            impact: 'redeploy',
+            mono: true,
+          },
+        ],
+      },
+      {
+        key: 'app-security',
+        title: 'Security model',
+        description:
+          'Where this application’s roles and policies come from: the descriptors it was built with, or the domain’s security realm.',
+        path: deploymentPath,
+        fields: [
+          {
+            attr: 'securityDDModel',
+            label: 'Roles and policies come from',
+            help: 'DD only takes both from the descriptors in the archive and ignores anything set in the realm. Custom roles lets the realm define who is in a role while the archive still decides what each role may do. Custom roles and policies puts both in the realm — that is the one to pick when access has to be changed without a rebuild. Advanced follows the realm’s own configuration. Changing this discards role and policy data that came from the other model, so read it before switching on a live application.',
+            type: 'select',
+            options: [
+              { value: 'DDOnly', label: 'DD only — everything from the archive’s descriptors (default)' },
+              { value: 'CustomRoles', label: 'Custom roles — roles from the realm, policies from the archive' },
+              { value: 'CustomRolesAndPolicies', label: 'Custom roles and policies — both from the realm' },
+              { value: 'Advanced', label: 'Advanced — as configured in the security realm' },
+            ],
+            impact: 'redeploy',
+          },
+          {
+            attr: 'validateDDSecurityData',
+            label: 'Check the descriptors’ security data on deploy',
+            help: 'Validates the roles and policies in the descriptors as the application deploys. It catches a principal that does not exist at deployment time rather than at the first request that needs it.',
+            type: 'boolean',
+            impact: 'redeploy',
+          },
+          {
+            attr: 'deploymentPrincipalName',
+            label: 'Deploy as user',
+            help: 'The user this application is deployed and started as when a server boots. Empty means the server’s own identity, which is the usual case. Set it when the application reads files or resources only a particular account may reach.',
+            type: 'text',
+            placeholder: 'empty — the server’s own identity',
+            impact: 'redeploy',
+          },
+        ],
+      },
+      {
+        key: 'deployment-files',
+        title: 'Where the files are',
+        description:
+          'Resolved by the AdminServer, and read-only here: moving an application means deploying it again, not editing a path.',
+        path: deploymentPath,
+        fields: [
+          {
             attr: 'sourcePath',
             label: 'Archive path',
-            help: 'Where the deployed archive lives. Editing it here would not move the file, so it is read-only — deploy the new archive from the Deployments page instead.',
+            help: 'The path as it was given when the application was deployed. Relative paths are resolved against the domain directory.',
             type: 'text',
             readonly: true,
             mono: true,
+          },
+          {
+            attr: 'absoluteSourcePath',
+            label: 'Archive path, resolved',
+            help: 'The full path the AdminServer resolved that to. This is the first thing to check when a deployment fails with a file-not-found on one server only.',
+            type: 'text',
+            readonly: true,
+            mono: true,
+          },
+          {
+            attr: 'absolutePlanPath',
+            label: 'Plan path, resolved',
+            help: 'The full path of the deployment plan actually in use, if there is one.',
+            type: 'text',
+            readonly: true,
+            mono: true,
+          },
+          {
+            attr: 'installDir',
+            label: 'Install directory',
+            help: 'Set when the application follows the installation-directory layout, with app/ and plan/ subdirectories. Empty for a plain archive deployment.',
+            type: 'text',
+            readonly: true,
+            mono: true,
+          },
+          {
+            attr: 'moduleType',
+            label: 'Module type',
+            help: 'war for a web application, ear for an enterprise application, jar for an EJB module, rar for a resource adapter.',
+            type: 'text',
+            readonly: true,
+          },
+          {
+            attr: 'versionIdentifier',
+            label: 'Version',
+            help: 'The version this deployment carries, if it was built with one. Versioned applications can be deployed side by side, with the older one retiring as its sessions finish.',
+            type: 'text',
+            readonly: true,
           },
         ],
       },
