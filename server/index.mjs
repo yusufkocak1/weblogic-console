@@ -4,17 +4,23 @@
  * The browser cannot talk to a WebLogic AdminServer directly: the REST
  * management API sends no CORS headers, and we do not want Basic credentials
  * living in browser storage. So this process — which runs on the operator's own
- * machine — holds the connection and proxies /api/wls/* to whichever AdminServer
- * was entered on the login screen. The browser only ever carries an opaque,
+ * machine — holds the connections and proxies /api/wls/* to whichever
+ * AdminServer is currently active. The browser only ever carries an opaque,
  * httpOnly session cookie.
+ *
+ * One browser session can hold several live connections at once, so switching
+ * between domains is instant and does not re-authenticate. Saved profiles
+ * (name, host, port, SSL, username) are persisted to disk; passwords never are,
+ * so after a restart each profile needs its password entered once.
  *
  * It also serves the built SPA from dist/, so `npm start` is the whole app.
  */
 
 import http from 'node:http'
 import https from 'node:https'
+import os from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -24,12 +30,17 @@ const PORT = Number(process.env.WLC_PORT || 7101)
 // admin credentials, so it must not be exposed on the network by default.
 const HOST = process.env.WLC_HOST || '127.0.0.1'
 const DIST = fileURLToPath(new URL('../dist', import.meta.url))
+const HOME = process.env.WLC_HOME || path.join(os.homedir(), '.wl-console')
+const PROFILES_FILE = path.join(HOME, 'profiles.json')
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const MAX_BODY_BYTES = 32 * 1024 * 1024
 const COOKIE_NAME = 'wlc_session'
 const REST_BASE = '/management/weblogic/latest'
 
-/** token -> connection. In memory only: restarting the server drops sessions. */
+/**
+ * token -> { connections: Map<id, connection>, activeId, lastUsed }
+ * In memory only: restarting the server drops every live connection.
+ */
 const sessions = new Map()
 
 setInterval(() => {
@@ -38,6 +49,57 @@ setInterval(() => {
     if (session.lastUsed < cutoff) sessions.delete(token)
   }
 }, 60_000).unref()
+
+// ---------------------------------------------------------------- profiles
+
+/**
+ * Saved connection targets, without credentials. Kept on disk so the list
+ * survives restarts; a password is still required to bring one back to life.
+ */
+let profiles = loadProfiles()
+
+function loadProfiles() {
+  try {
+    const raw = JSON.parse(readFileSync(PROFILES_FILE, 'utf8'))
+    return Array.isArray(raw) ? raw.filter((p) => p?.id && p?.host) : []
+  } catch {
+    // Missing or unreadable file simply means "no profiles yet".
+    return []
+  }
+}
+
+function saveProfiles() {
+  try {
+    mkdirSync(HOME, { recursive: true })
+    // Write-then-rename so an interrupted write cannot truncate the list.
+    const tmp = `${PROFILES_FILE}.tmp`
+    writeFileSync(tmp, JSON.stringify(profiles, null, 2), { mode: 0o600 })
+    renameSync(tmp, PROFILES_FILE)
+  } catch (err) {
+    console.error(`  Could not save profiles to ${PROFILES_FILE}: ${err.message}`)
+  }
+}
+
+const profileKey = (p) => `${p.ssl ? 'https' : 'http'}://${p.username}@${p.host}:${p.port}`
+
+function upsertProfile({ name, host, port, ssl, insecure, username }) {
+  const key = profileKey({ host, port, ssl, username })
+  const existing = profiles.find((p) => profileKey(p) === key)
+  const profile = existing || { id: randomUUID() }
+  Object.assign(profile, {
+    name: name?.trim() || existing?.name || `${host}:${port}`,
+    host,
+    port,
+    ssl,
+    insecure,
+    username,
+    lastUsedAt: Date.now(),
+  })
+  if (!existing) profiles.push(profile)
+  profiles.sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0))
+  saveProfiles()
+  return profile
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -109,17 +171,42 @@ function cookieHeader(token) {
 
 const clearedCookie = `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
 
-function publicSession(session) {
+/** Everything about a connection except the credential itself. */
+function publicConnection(connection, activeId) {
   return {
-    host: session.host,
-    port: session.port,
-    ssl: session.ssl,
-    insecure: session.insecure,
-    username: session.username,
-    baseUrl: session.baseUrl,
-    domain: session.domain,
-    connectedAt: session.createdAt,
+    id: connection.id,
+    profileId: connection.profileId,
+    name: connection.name,
+    host: connection.host,
+    port: connection.port,
+    ssl: connection.ssl,
+    insecure: connection.insecure,
+    username: connection.username,
+    baseUrl: connection.baseUrl,
+    domain: connection.domain,
+    connectedAt: connection.connectedAt,
+    active: connection.id === activeId,
   }
+}
+
+function sessionState(session) {
+  const connections = session ? [...session.connections.values()] : []
+  const activeId = session?.activeId ?? null
+  return {
+    connected: Boolean(activeId && session.connections.has(activeId)),
+    activeId,
+    connections: connections.map((c) => publicConnection(c, activeId)),
+    profiles,
+  }
+}
+
+/** The connection a proxied call should use: pinned by header, else active. */
+function resolveConnection(session, req) {
+  if (!session) return null
+  const pinned = req.headers['x-connection-id']
+  if (pinned && session.connections.has(pinned)) return session.connections.get(pinned)
+  if (pinned) return null
+  return session.connections.get(session.activeId) || null
 }
 
 // ---------------------------------------------------------------- upstream
@@ -128,11 +215,11 @@ function publicSession(session) {
  * One request to the AdminServer. Uses node:http(s) rather than fetch so that
  * self-signed certificates can be accepted per connection.
  */
-function callAdminServer(session, { method, path: restPath, body, headers = {}, timeoutMs = 120_000 }) {
+function callAdminServer(connection, { method, path: restPath, body, headers = {}, timeoutMs = 120_000 }) {
   return new Promise((resolve, reject) => {
     let url
     try {
-      url = new URL(session.baseUrl + restPath)
+      url = new URL(connection.baseUrl + restPath)
     } catch {
       reject(Object.assign(new Error('Invalid upstream path'), { status: 400 }))
       return
@@ -143,14 +230,14 @@ function callAdminServer(session, { method, path: restPath, body, headers = {}, 
       {
         method,
         headers: {
-          Authorization: session.auth,
+          Authorization: connection.auth,
           Accept: 'application/json',
           // WebLogic rejects state-changing REST calls without this header.
           'X-Requested-By': 'wl-console',
           ...headers,
           ...(body?.length ? { 'Content-Length': body.length } : {}),
         },
-        rejectUnauthorized: !session.insecure,
+        rejectUnauthorized: !connection.insecure,
       },
       (upstreamRes) => {
         const chunks = []
@@ -192,9 +279,9 @@ function normalizeUpstreamError(err) {
   return Object.assign(new Error(detail), { status: err?.status || 502, code })
 }
 
-// ---------------------------------------------------------------- routes
+// ---------------------------------------------------------------- connections
 
-async function handleConnect(req, res) {
+async function handleCreateConnection(req, res) {
   const payload = await readJson(req)
   const host = String(payload.host || '').trim()
   const port = Number(payload.port)
@@ -202,29 +289,30 @@ async function handleConnect(req, res) {
   const insecure = Boolean(payload.insecure)
   const username = String(payload.username || '')
   const password = String(payload.password || '')
+  const save = payload.save !== false
 
   if (!host) return sendError(res, 400, 'Host is required')
   if (!Number.isInteger(port) || port < 1 || port > 65535) return sendError(res, 400, 'Port must be between 1 and 65535')
   if (!username) return sendError(res, 400, 'Username is required')
 
   const bracketed = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
-  const baseUrl = `${ssl ? 'https' : 'http'}://${bracketed}:${port}`
-  const session = {
+  const connection = {
+    id: randomUUID(),
+    name: String(payload.name || '').trim(),
     host,
     port,
     ssl,
     insecure,
     username,
-    baseUrl,
+    baseUrl: `${ssl ? 'https' : 'http'}://${bracketed}:${port}`,
     auth: 'Basic ' + Buffer.from(`${username}:${password}`, 'utf8').toString('base64'),
     domain: null,
-    createdAt: Date.now(),
-    lastUsed: Date.now(),
+    connectedAt: Date.now(),
   }
 
   let upstream
   try {
-    upstream = await callAdminServer(session, {
+    upstream = await callAdminServer(connection, {
       method: 'GET',
       path:
         REST_BASE +
@@ -250,11 +338,16 @@ async function handleConnect(req, res) {
     )
   }
   if (upstream.status >= 400) {
-    return sendError(res, upstream.status, 'The AdminServer refused the connection check', upstream.body.toString('utf8').slice(0, 400))
+    return sendError(
+      res,
+      upstream.status,
+      'The AdminServer refused the connection check',
+      upstream.body.toString('utf8').slice(0, 400),
+    )
   }
 
   try {
-    session.domain = JSON.parse(upstream.body.toString('utf8'))
+    connection.domain = JSON.parse(upstream.body.toString('utf8'))
   } catch {
     return sendError(
       res,
@@ -264,33 +357,109 @@ async function handleConnect(req, res) {
     )
   }
 
-  const token = randomUUID()
-  sessions.set(token, session)
-  sendJson(res, 200, publicSession(session), { 'Set-Cookie': cookieHeader(token) })
+  // A name the user gave wins; otherwise keep whatever this target is already
+  // saved as, so reconnecting never silently renames an existing profile.
+  const saved = profiles.find((p) => profileKey(p) === profileKey({ host, port, ssl, username }))
+  connection.name = connection.name || saved?.name || connection.domain?.name || `${host}:${port}`
+  if (save) connection.profileId = upsertProfile(connection).id
+
+  // Reuse the browser's existing session so adding a second connection keeps
+  // the first one live; only mint a cookie when there is no session yet.
+  let session = sessionFor(req)
+  let setCookie = null
+  if (!session) {
+    const token = randomUUID()
+    session = { connections: new Map(), activeId: null, lastUsed: Date.now() }
+    sessions.set(token, session)
+    setCookie = cookieHeader(token)
+  }
+
+  // Reconnecting the same target as the same user replaces the old entry
+  // rather than stacking duplicates.
+  for (const [id, existing] of session.connections) {
+    if (existing.baseUrl === connection.baseUrl && existing.username === connection.username) {
+      session.connections.delete(id)
+    }
+  }
+
+  session.connections.set(connection.id, connection)
+  session.activeId = connection.id
+
+  sendJson(res, 200, sessionState(session), setCookie ? { 'Set-Cookie': setCookie } : {})
 }
 
-function handleDisconnect(req, res) {
+function handleActivate(req, res, id) {
+  const session = sessionFor(req)
+  if (!session?.connections.has(id)) {
+    return sendError(res, 404, 'No such connection', 'It may have been closed already. Reconnect to that domain.')
+  }
+  session.activeId = id
+  const connection = session.connections.get(id)
+  if (connection.profileId) {
+    const profile = profiles.find((p) => p.id === connection.profileId)
+    if (profile) {
+      profile.lastUsedAt = Date.now()
+      saveProfiles()
+    }
+  }
+  sendJson(res, 200, sessionState(session))
+}
+
+function handleCloseConnection(req, res, id) {
+  const session = sessionFor(req)
+  if (!session) return sendJson(res, 200, sessionState(null))
+  session.connections.delete(id)
+  if (session.activeId === id) {
+    // Fall back to whatever is still open, so the UI stays usable.
+    session.activeId = session.connections.keys().next().value ?? null
+  }
+  sendJson(res, 200, sessionState(session))
+}
+
+function handleDisconnectAll(req, res) {
   const token = parseCookies(req.headers.cookie)[COOKIE_NAME]
   if (token) sessions.delete(token)
-  sendJson(res, 200, { ok: true }, { 'Set-Cookie': clearedCookie })
+  sendJson(res, 200, sessionState(null), { 'Set-Cookie': clearedCookie })
 }
 
 function handleSession(req, res) {
+  sendJson(res, 200, sessionState(sessionFor(req)))
+}
+
+async function handleUpdateProfile(req, res, id) {
+  const profile = profiles.find((p) => p.id === id)
+  if (!profile) return sendError(res, 404, 'No such profile')
+  const payload = await readJson(req)
+  const name = String(payload.name || '').trim()
+  if (!name) return sendError(res, 400, 'Name cannot be empty')
+  profile.name = name
+  saveProfiles()
+
+  // Keep any live connection created from this profile labelled consistently.
   const session = sessionFor(req)
-  if (!session) return sendJson(res, 200, { connected: false })
-  sendJson(res, 200, { connected: true, ...publicSession(session) })
+  for (const connection of session?.connections.values() || []) {
+    if (connection.profileId === id) connection.name = name
+  }
+  sendJson(res, 200, sessionState(session))
+}
+
+function handleDeleteProfile(req, res, id) {
+  profiles = profiles.filter((p) => p.id !== id)
+  saveProfiles()
+  sendJson(res, 200, sessionState(sessionFor(req)))
 }
 
 async function handleProxy(req, res, restPath) {
   const session = sessionFor(req)
-  if (!session) {
+  const connection = resolveConnection(session, req)
+  if (!connection) {
     return sendError(res, 401, 'Not connected', 'The console session expired. Connect to an AdminServer again.')
   }
 
   const body = ['GET', 'HEAD', 'DELETE'].includes(req.method) ? null : await readBody(req)
   let upstream
   try {
-    upstream = await callAdminServer(session, {
+    upstream = await callAdminServer(connection, {
       method: req.method,
       path: REST_BASE + restPath,
       body,
@@ -361,18 +530,37 @@ async function serveStatic(req, res, urlPath) {
 
 // ---------------------------------------------------------------- server
 
+const CONNECTION_ROUTE = /^\/api\/connections\/([^/]+)(?:\/(activate))?$/
+const PROFILE_ROUTE = /^\/api\/profiles\/([^/]+)$/
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
   const { pathname } = url
+  const { method } = req
 
   try {
-    if (pathname === '/api/connect' && req.method === 'POST') return await handleConnect(req, res)
-    if (pathname === '/api/disconnect' && req.method === 'POST') return handleDisconnect(req, res)
-    if (pathname === '/api/session' && req.method === 'GET') return handleSession(req, res)
+    if (pathname === '/api/session' && method === 'GET') return handleSession(req, res)
+    if (pathname === '/api/connections' && method === 'POST') return await handleCreateConnection(req, res)
+    if (pathname === '/api/disconnect' && method === 'POST') return handleDisconnectAll(req, res)
+
+    const connectionMatch = pathname.match(CONNECTION_ROUTE)
+    if (connectionMatch) {
+      const [, id, action] = connectionMatch
+      if (action === 'activate' && method === 'POST') return handleActivate(req, res, id)
+      if (!action && method === 'DELETE') return handleCloseConnection(req, res, id)
+    }
+
+    const profileMatch = pathname.match(PROFILE_ROUTE)
+    if (profileMatch) {
+      const [, id] = profileMatch
+      if (method === 'PATCH') return await handleUpdateProfile(req, res, id)
+      if (method === 'DELETE') return handleDeleteProfile(req, res, id)
+    }
+
     if (pathname.startsWith('/api/wls/')) {
       return await handleProxy(req, res, pathname.slice('/api/wls'.length) + url.search)
     }
-    if (pathname.startsWith('/api/')) return sendError(res, 404, 'Unknown API endpoint', pathname)
+    if (pathname.startsWith('/api/')) return sendError(res, 404, 'Unknown API endpoint', `${method} ${pathname}`)
     return await serveStatic(req, res, pathname)
   } catch (err) {
     if (res.headersSent) {
@@ -394,5 +582,6 @@ server.on('error', (err) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`\n  wl-console backend listening on http://${HOST}:${PORT}`)
-  console.log('  Open that address in a browser and enter your AdminServer details.\n')
+  console.log(`  ${profiles.length} saved connection profile(s) in ${PROFILES_FILE}`)
+  console.log('  Open that address in a browser and connect to an AdminServer.\n')
 })

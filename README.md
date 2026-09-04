@@ -14,6 +14,7 @@ deployed to the AdminServer, and no agent runs anywhere near your servers.
 
 - [Why this exists](#why-this-exists)
 - [Quick start](#quick-start)
+- [Multiple domains](#multiple-domains)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Project layout](#project-layout)
@@ -60,8 +61,8 @@ Open <http://127.0.0.1:7101>, enter your AdminServer details, and connect:
 | Password | —           | Held in the local process only, never stored        |
 | SSL      | off         | Turn on for an HTTPS admin port                     |
 
-Recent targets are remembered so you can switch domains in one click.
-Passwords never are.
+Connections you make are saved so you can come back to them in one click —
+see [Multiple domains](#multiple-domains). Passwords are never saved.
 
 ### Scripts
 
@@ -77,6 +78,34 @@ Passwords never are.
 `npm run dev` runs both halves in one terminal with prefixed, colour-coded
 output; Ctrl-C stops both.
 
+## Multiple domains
+
+You can have several AdminServers open at the same time — production, test, a
+colleague's sandbox — and switch between them instantly. The switcher sits at
+the top of the sidebar; `Manage connections…` opens a page to rename, close and
+forget them.
+
+**Saved profiles** keep a name, host, port, SSL settings and username. They live
+in `~/.wl-console/profiles.json` (override the directory with `WLC_HOME`) and
+survive restarts, so the list is there the next time you open the console.
+
+**Passwords are never written to disk.** They are held in the console process's
+memory for as long as it runs. In practice this means:
+
+- While the console is running, switching between open domains is instant and
+  does not re-authenticate.
+- After restarting the console, each profile asks for its password once — a
+  small dialog, with everything else already filled in.
+- Killing the process forgets every credential.
+
+Each REST call is pinned to the connection it was issued for, so a slow response
+from one domain can never be rendered as another domain's data if you switch
+while it is in flight. Switching also clears the page and reloads it against the
+new domain rather than leaving stale numbers on screen.
+
+Untick **Save this connection** on the connect screen for a one-off session that
+leaves nothing behind.
+
 ## Configuration
 
 All configuration is environment variables — there is no config file to manage.
@@ -85,6 +114,7 @@ All configuration is environment variables — there is no config file to manage
 | ------------------ | ----------------------- | ---------------------------------------------- |
 | `WLC_PORT`         | `7101`                  | Port the local console listens on               |
 | `WLC_HOST`         | `127.0.0.1`             | Bind address — loopback on purpose              |
+| `WLC_HOME`         | `~/.wl-console`         | Directory holding `profiles.json`               |
 | `VITE_BACKEND_URL` | `http://127.0.0.1:7101` | Where Vite proxies `/api` during development    |
 
 ```bash
@@ -94,7 +124,7 @@ WLC_PORT=8080 npm start          # run somewhere else
 ## How it works
 
 ```
-┌─────────┐   /api/connect     ┌──────────────────┐   /management/weblogic/latest/*   ┌─────────────┐
+┌─────────┐  /api/connections  ┌──────────────────┐   /management/weblogic/latest/*   ┌─────────────┐
 │ browser │ ──/api/wls/*────▶  │ server/index.mjs │ ────────────────────────────────▶ │ AdminServer │
 └─────────┘  httpOnly cookie   │  (your machine)  │   HTTP Basic + X-Requested-By     └─────────────┘
                                └──────────────────┘
@@ -111,12 +141,13 @@ WLC_PORT=8080 npm start          # run somewhere else
    request.
 
 So a small Node process — the one you start with `npm start`, running on your
-own machine — owns the connection. On connect it validates the credentials
+own machine — owns the connections. On connect it validates the credentials
 against `/domainConfig`, keeps the target URL and the Basic header in memory,
 and hands the browser nothing but an opaque `httpOnly` session cookie. Every
 subsequent `/api/wls/*` call is forwarded upstream with the stored credentials
-attached server-side. Sessions expire after 8 hours idle and die with the
-process.
+attached server-side. One browser session can hold several connections at once;
+each request carries an `X-Connection-Id` naming the one it belongs to. Sessions
+expire after 8 hours idle and die with the process.
 
 The same process serves the built UI in production mode, so `npm run serve` is
 the entire application: one port, one command, no reverse proxy.
@@ -132,17 +163,18 @@ request per MBean. See `runtimeSnapshot()` in
 ## Project layout
 
 ```
-server/index.mjs            connection handling, REST proxy, static serving
+server/index.mjs            connections, profiles, REST proxy, static serving
 scripts/dev.mjs             runs backend + Vite together
 src/
   api/
     client.js               fetch wrapper for the local backend, error shaping
     weblogic.js             one function per WebLogic endpoint / search payload
   stores/
-    connection.js           connection state, recent targets (Pinia)
+    connection.js           live connections, saved profiles, active target
     ui.js                   theme, refresh interval, toasts
   composables/
-    useResource.js          load + auto-refresh + abort + auth recovery
+    useResource.js          load + auto-refresh + abort + reload on domain switch
+    useReconnect.js         password prompt for bringing a saved profile back
   components/               AppShell, DataTable, StateBadge, MeterBar, …
   views/                    one view per console section
   utils/format.js           bytes, durations, health/target normalisation
@@ -164,9 +196,11 @@ depends on Vue, Vue Router, Pinia and Tailwind — nothing else at runtime.
 | **Monitoring**    | Per-server JVM heap, committed size, uptime, Java version; thread pool busy/idle, hogging, **stuck**, queue depth, throughput | `JVMRuntime`, `threadPoolRuntime`                                   |
 | **Logs**          | Server log records with minimum-severity filter, message search, time window   | WLDF data accessor (`search`, with cursor fallback)                 |
 | **REST Explorer** | Any endpoint of the management API, with bookmarks and pretty-printed JSON     | anything                                                            |
+| **Connections**   | Saved domains and open sessions: switch, rename, close, forget                 | local, no WebLogic call                                             |
 
 Across every page:
 
+- **Several domains open at once**, with instant switching from the sidebar.
 - **Auto-refresh** with a selectable interval (off / 5s / 15s / 30s / 60s) that
   pauses while the tab is hidden, so a console left open overnight does not
   hammer the AdminServer.
@@ -190,6 +224,9 @@ section before you deploy it anywhere other than your own workstation.
 - Credentials live in the backend process's memory for the session's lifetime.
   They are never written to disk, never sent to the browser, and never placed in
   `localStorage` or `sessionStorage`.
+- Saved profiles hold only a name, host, port, SSL flags and username. The
+  profiles file is written with owner-only permissions and contains no secrets,
+  so it is safe to back up or sync.
 - The browser holds an opaque random token in an `httpOnly`, `SameSite=Lax`
   cookie. JavaScript on the page cannot read it.
 - Only the host, port and username of recent targets are remembered in

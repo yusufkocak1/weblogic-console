@@ -81,6 +81,20 @@ export function useResource(loader, { immediate = true, poll = true, onError } =
 
   watch(() => ui.refreshMs, schedule)
 
+  // Switching domains invalidates everything on screen: drop the old domain's
+  // data rather than letting it linger under the new domain's name.
+  watch(
+    () => connection.activeId,
+    (id, previous) => {
+      if (id === previous) return
+      data.value = null
+      error.value = null
+      lastUpdated.value = null
+      if (id) run().then(schedule)
+      else stop()
+    },
+  )
+
   const onVisible = () => {
     if (document.visibilityState === 'visible' && poll && ui.refreshMs) reload()
   }

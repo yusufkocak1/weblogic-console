@@ -1,64 +1,74 @@
 import { defineStore } from 'pinia'
 import * as api from '@/api/client'
 
-const RECENT_KEY = 'wl-console.recent'
-const MAX_RECENT = 6
-
 /**
- * Connection targets the user has used before — host, port and username only.
- * Passwords are never written anywhere: they live in the backend process for the
- * lifetime of the session and nowhere else.
+ * Connection state mirrors the backend, which is the single source of truth.
+ *
+ * Several domains can be open at once: `connections` holds the live ones (their
+ * credentials sit in the backend process), `profiles` holds the saved targets
+ * that persist across restarts. A profile without a live connection just needs
+ * its password entered again.
  */
-function readRecent() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
-    return Array.isArray(raw) ? raw.slice(0, MAX_RECENT) : []
-  } catch {
-    return []
-  }
-}
-
-function writeRecent(entries) {
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(entries.slice(0, MAX_RECENT)))
-  } catch {
-    /* storage disabled — recent list just won't persist */
-  }
-}
-
 export const useConnectionStore = defineStore('connection', {
   state: () => ({
-    connected: false,
-    host: '',
-    port: null,
-    ssl: false,
-    insecure: false,
-    username: '',
-    baseUrl: '',
-    domain: null,
-    connectedAt: null,
+    connections: [],
+    profiles: [],
+    activeId: null,
     busy: false,
+    switching: false,
     ready: false,
-    recent: readRecent(),
   }),
 
   getters: {
-    domainName: (state) => state.domain?.name || 'WebLogic Domain',
-    productionMode: (state) => Boolean(state.domain?.productionModeEnabled),
-    target: (state) => (state.connected ? `${state.host}:${state.port}` : ''),
+    active: (state) => state.connections.find((c) => c.id === state.activeId) || null,
+    connected() {
+      return Boolean(this.active)
+    },
+    domainName() {
+      return this.active?.domain?.name || 'WebLogic Domain'
+    },
+    /** The user-facing label: the profile name, falling back to host:port. */
+    activeLabel() {
+      const active = this.active
+      return active ? active.name || `${active.host}:${active.port}` : ''
+    },
+    productionMode() {
+      return Boolean(this.active?.domain?.productionModeEnabled)
+    },
+    target() {
+      return this.active ? `${this.active.host}:${this.active.port}` : ''
+    },
+    baseUrl() {
+      return this.active?.baseUrl || ''
+    },
+    username() {
+      return this.active?.username || ''
+    },
+    /** Live connection for a saved profile, if that profile is currently open. */
+    connectionForProfile: (state) => (profileId) =>
+      state.connections.find((c) => c.profileId === profileId) || null,
+    /** Profiles that are saved but not currently connected. */
+    offlineProfiles: (state) =>
+      state.profiles.filter((p) => !state.connections.some((c) => c.profileId === p.id)),
   },
 
   actions: {
-    /** Asks the backend whether this browser already has a live session. */
+    apply(payload) {
+      this.connections = payload?.connections ?? []
+      this.profiles = payload?.profiles ?? []
+      this.activeId = payload?.activeId ?? null
+      // The API client pins every REST call to this id.
+      api.setActiveConnectionId(this.activeId)
+    },
+
+    /** Asks the backend which connections this browser already has open. */
     async init() {
       try {
-        const info = await api.session()
-        if (info?.connected) this.$patch({ ...info, connected: true })
-        else this.reset()
+        this.apply(await api.session())
       } catch {
-        // Backend unreachable at boot: fall through to the login screen, which
-        // will surface the real error when the user tries to connect.
-        this.reset()
+        // Backend unreachable at boot: fall through to the connect screen,
+        // which surfaces the real error when the user tries to connect.
+        this.apply(null)
       } finally {
         this.ready = true
       }
@@ -67,57 +77,60 @@ export const useConnectionStore = defineStore('connection', {
     async connect(form) {
       this.busy = true
       try {
-        const info = await api.connect({
-          host: form.host.trim(),
-          port: Number(form.port),
-          ssl: Boolean(form.ssl),
-          insecure: Boolean(form.insecure),
-          username: form.username,
-          password: form.password,
-        })
-        this.$patch({ ...info, connected: true })
-        this.rememberTarget(info)
-        return info
+        this.apply(
+          await api.openConnection({
+            name: form.name?.trim() || '',
+            host: form.host.trim(),
+            port: Number(form.port),
+            ssl: Boolean(form.ssl),
+            insecure: Boolean(form.insecure),
+            username: form.username,
+            password: form.password,
+            save: form.save !== false,
+          }),
+        )
+        return this.active
       } finally {
         this.busy = false
       }
     },
 
-    rememberTarget({ host, port, ssl, insecure, username }) {
-      const entry = { host, port, ssl, insecure, username }
-      const key = (e) => `${e.host}:${e.port}:${e.username}`
-      this.recent = [entry, ...this.recent.filter((e) => key(e) !== key(entry))].slice(0, MAX_RECENT)
-      writeRecent(this.recent)
-    },
-
-    forgetTarget(entry) {
-      const key = (e) => `${e.host}:${e.port}:${e.username}`
-      this.recent = this.recent.filter((e) => key(e) !== key(entry))
-      writeRecent(this.recent)
-    },
-
-    async disconnect() {
+    async activate(id) {
+      if (id === this.activeId) return
+      this.switching = true
       try {
-        await api.disconnect()
+        this.apply(await api.activateConnection(id))
+      } finally {
+        this.switching = false
+      }
+    },
+
+    /** Closes one connection; its credentials are dropped by the backend. */
+    async close(id) {
+      this.apply(await api.closeConnection(id))
+    },
+
+    async disconnectAll() {
+      try {
+        await api.disconnectAll()
       } catch {
         // Even if the call fails the local state must clear, or the UI keeps
-        // showing a connection the user asked to end.
+        // showing connections the user asked to end.
       }
-      this.reset()
+      this.apply(null)
     },
 
+    async renameProfile(id, name) {
+      this.apply(await api.renameProfile(id, name))
+    },
+
+    async deleteProfile(id) {
+      this.apply(await api.deleteProfile(id))
+    },
+
+    /** Called when the backend reports the session is gone. */
     reset() {
-      this.$patch({
-        connected: false,
-        host: '',
-        port: null,
-        ssl: false,
-        insecure: false,
-        username: '',
-        baseUrl: '',
-        domain: null,
-        connectedAt: null,
-      })
+      this.apply(null)
     },
   },
 })

@@ -1,13 +1,24 @@
 /**
  * Talks to the local console backend, never to WebLogic directly.
  *
- * server/index.mjs holds the AdminServer connection (URL + credentials) for the
- * session and forwards everything under /api/wls to the REST management API, so
- * the browser carries nothing but an httpOnly session cookie.
+ * server/index.mjs holds the AdminServer connections (URL + credentials) and
+ * forwards everything under /api/wls to the REST management API, so the browser
+ * carries nothing but an httpOnly session cookie.
  */
 
 export const API_BASE = '/api'
 export const WLS_BASE = '/api/wls'
+
+/**
+ * The connection a REST call should be routed to. Pinning it per request means
+ * a response that arrives after the user switched domains cannot be mistaken
+ * for data about the newly active one.
+ */
+let activeConnectionId = null
+
+export function setActiveConnectionId(id) {
+  activeConnectionId = id || null
+}
 
 export class WlsError extends Error {
   constructor(message, { status = 0, detail = '', messages = [], path = '' } = {}) {
@@ -58,7 +69,7 @@ function describeError(status, payload, path) {
   return new WlsError(title, { status, detail, messages, path })
 }
 
-async function send(url, { method = 'GET', body, signal, timeoutMs = 60000 } = {}) {
+async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, headers = {} } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new WlsError('Request timed out', { path: url })), timeoutMs)
   if (signal) {
@@ -73,6 +84,7 @@ async function send(url, { method = 'GET', body, signal, timeoutMs = 60000 } = {
       headers: {
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
@@ -103,7 +115,13 @@ async function send(url, { method = 'GET', body, signal, timeoutMs = 60000 } = {
 // --- WebLogic REST (proxied) -------------------------------------------------
 
 export const request = (path, options = {}) =>
-  send(buildUrl(WLS_BASE, path, options.params), options)
+  send(buildUrl(WLS_BASE, path, options.params), {
+    ...options,
+    headers: {
+      ...(activeConnectionId ? { 'X-Connection-Id': activeConnectionId } : {}),
+      ...options.headers,
+    },
+  })
 
 export const get = (path, params, options) => request(path, { ...options, params })
 export const post = (path, body, options) => request(path, { ...options, method: 'POST', body: body ?? {} })
@@ -117,7 +135,22 @@ export const del = (path, options) => request(path, { ...options, method: 'DELET
 export const search = (tree, payload, options) => post(`/${tree}/search`, payload, options)
 
 // --- console backend ---------------------------------------------------------
+// Each of these returns the full session state: connections plus saved profiles.
 
-export const connect = (credentials) => send(`${API_BASE}/connect`, { method: 'POST', body: credentials, timeoutMs: 30000 })
-export const disconnect = () => send(`${API_BASE}/disconnect`, { method: 'POST' })
 export const session = () => send(`${API_BASE}/session`, { timeoutMs: 10000 })
+
+export const openConnection = (credentials) =>
+  send(`${API_BASE}/connections`, { method: 'POST', body: credentials, timeoutMs: 30000 })
+
+export const activateConnection = (id) =>
+  send(`${API_BASE}/connections/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+
+export const closeConnection = (id) =>
+  send(`${API_BASE}/connections/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
+export const disconnectAll = () => send(`${API_BASE}/disconnect`, { method: 'POST' })
+
+export const renameProfile = (id, name) =>
+  send(`${API_BASE}/profiles/${encodeURIComponent(id)}`, { method: 'PATCH', body: { name } })
+
+export const deleteProfile = (id) => send(`${API_BASE}/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' })

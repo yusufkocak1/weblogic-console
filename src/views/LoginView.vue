@@ -2,24 +2,35 @@
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
+import { useReconnect } from '@/composables/useReconnect'
 import ErrorState from '@/components/ErrorState.vue'
+import PasswordPrompt from '@/components/PasswordPrompt.vue'
 
 const connection = useConnectionStore()
 const router = useRouter()
 const route = useRoute()
 
-const last = connection.recent[0]
+const prompt = ref(null)
+const reconnect = useReconnect(prompt)
+
+/** Reached from "Add connection…" while other domains are already open. */
+const addingAnother = computed(() => Boolean(route.query.add) && connection.connections.length > 0)
+
+const last = connection.profiles[0]
 const form = reactive({
+  name: '',
   host: last?.host ?? 'localhost',
   port: last?.port ?? 7001,
   ssl: last?.ssl ?? false,
   insecure: last?.insecure ?? false,
   username: last?.username ?? 'weblogic',
   password: '',
+  save: true,
 })
 
 const error = ref(null)
 const passwordVisible = ref(false)
+const showForm = ref(false)
 
 const previewUrl = computed(() => {
   const host = form.host?.trim() || 'host'
@@ -27,9 +38,11 @@ const previewUrl = computed(() => {
   return `${form.ssl ? 'https' : 'http'}://${bracketed}:${form.port || '?'}/management/weblogic/latest`
 })
 
-function useRecent(entry) {
-  Object.assign(form, { ...entry, password: '' })
-  error.value = null
+/** Show the form straight away when there is nothing saved to pick from. */
+const formVisible = computed(() => showForm.value || !connection.profiles.length)
+
+function done() {
+  router.replace(addingAnother.value ? { name: 'dashboard' } : route.query.redirect || { name: 'dashboard' })
 }
 
 async function submit() {
@@ -37,10 +50,19 @@ async function submit() {
   try {
     await connection.connect(form)
     form.password = ''
-    router.replace(route.query.redirect || { name: 'dashboard' })
+    done()
   } catch (err) {
     error.value = err
   }
+}
+
+async function openProfile(profile) {
+  if (await reconnect(profile)) done()
+}
+
+async function switchTo(item) {
+  await connection.activate(item.id)
+  done()
 }
 </script>
 
@@ -51,11 +73,57 @@ async function submit() {
         <span class="grid h-10 w-10 place-items-center rounded-xl bg-indigo-600 text-lg font-bold text-white">W</span>
         <div>
           <h1 class="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">WebLogic Console</h1>
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">Connect to an AdminServer</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">
+            {{ addingAnother ? 'Add another AdminServer' : 'Connect to an AdminServer' }}
+          </p>
         </div>
       </div>
 
-      <form class="card space-y-4 p-5" @submit.prevent="submit">
+      <!-- Saved and open connections first: the common case is coming back to
+           a domain you already work with. -->
+      <div v-if="connection.profiles.length || connection.connections.length" class="card mb-3 divide-y divide-zinc-100 dark:divide-zinc-800">
+        <button
+          v-for="item in connection.connections"
+          :key="item.id"
+          class="flex w-full items-center gap-2.5 p-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+          @click="switchTo(item)"
+        >
+          <span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-50">{{ item.name }}</span>
+            <span class="block truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
+              {{ item.username }}@{{ item.host }}:{{ item.port }}
+            </span>
+          </span>
+          <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ item.active ? 'active' : 'open' }}</span>
+        </button>
+
+        <button
+          v-for="profile in connection.offlineProfiles"
+          :key="profile.id"
+          class="flex w-full items-center gap-2.5 p-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+          @click="openProfile(profile)"
+        >
+          <span class="h-2 w-2 shrink-0 rounded-full border border-zinc-300 dark:border-zinc-600" />
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-sm font-medium text-zinc-700 dark:text-zinc-200">{{ profile.name }}</span>
+            <span class="block truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
+              {{ profile.username }}@{{ profile.host }}:{{ profile.port }}<span v-if="profile.ssl"> · SSL</span>
+            </span>
+          </span>
+          <span class="text-xs text-zinc-400 dark:text-zinc-500">connect</span>
+        </button>
+      </div>
+
+      <button
+        v-if="!formVisible"
+        class="btn btn-ghost w-full"
+        @click="showForm = true"
+      >
+        New connection…
+      </button>
+
+      <form v-if="formVisible" class="card space-y-4 p-5" @submit.prevent="submit">
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="label" for="host">Host or IP</label>
@@ -93,6 +161,11 @@ async function submit() {
           </div>
         </div>
 
+        <div>
+          <label class="label" for="name">Name <span class="font-normal text-zinc-400">(optional)</span></label>
+          <input id="name" v-model="form.name" class="input" placeholder="Production · Ankara" autocomplete="off" />
+        </div>
+
         <div class="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-950/60">
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input v-model="form.ssl" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
@@ -106,6 +179,10 @@ async function submit() {
             <input v-model="form.insecure" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
             Trust self-signed certificate
           </label>
+          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input v-model="form.save" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
+            Save this connection
+          </label>
           <p class="break-all font-mono text-xs text-zinc-400 dark:text-zinc-500">{{ previewUrl }}</p>
         </div>
 
@@ -116,35 +193,12 @@ async function submit() {
         </button>
       </form>
 
-      <div v-if="connection.recent.length" class="mt-4">
-        <p class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recent</p>
-        <ul class="space-y-1">
-          <li
-            v-for="entry in connection.recent"
-            :key="`${entry.host}:${entry.port}:${entry.username}`"
-            class="flex items-center gap-2"
-          >
-            <button
-              class="min-w-0 flex-1 truncate rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-left text-sm text-zinc-600 transition hover:border-indigo-300 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-indigo-700 dark:hover:text-zinc-100"
-              @click="useRecent(entry)"
-            >
-              {{ entry.username }}@{{ entry.host }}:{{ entry.port }}
-              <span v-if="entry.ssl" class="ml-1 text-xs text-zinc-400">SSL</span>
-            </button>
-            <button
-              class="px-2 text-zinc-400 transition hover:text-red-500"
-              :aria-label="`Forget ${entry.host}`"
-              @click="connection.forgetTarget(entry)"
-            >
-              &times;
-            </button>
-          </li>
-        </ul>
-      </div>
-
       <p class="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-600">
-        Credentials are held by the local console process for this session only — never stored in the browser.
+        Saved connections keep the host, port and username — never the password. Credentials are held by the local
+        console process for this session only.
       </p>
     </div>
+
+    <PasswordPrompt ref="prompt" />
   </div>
 </template>

@@ -2,6 +2,7 @@
 import { useRouter } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore, REFRESH_OPTIONS } from '@/stores/ui'
+import ConnectionSwitcher from '@/components/ConnectionSwitcher.vue'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
@@ -19,8 +20,8 @@ const NAV = [
   { name: 'explorer', label: 'REST Explorer', icon: 'M4 7h16M4 12h16M4 17h10M18 15l3 2-3 2' },
 ]
 
-async function disconnect() {
-  await connection.disconnect()
+async function disconnectAll() {
+  await connection.disconnectAll()
   router.push({ name: 'login' })
 }
 </script>
@@ -39,12 +40,8 @@ async function disconnect() {
         ui.sidebarOpen ? 'translate-x-0' : '-translate-x-full',
       ]"
     >
-      <div class="flex h-14 items-center gap-2.5 border-b border-zinc-200 px-4 dark:border-zinc-800">
-        <span class="grid h-7 w-7 place-items-center rounded-lg bg-indigo-600 text-sm font-bold text-white">W</span>
-        <div class="min-w-0">
-          <p class="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ connection.domainName }}</p>
-          <p class="truncate text-xs text-zinc-500 dark:text-zinc-400">{{ connection.target }}</p>
-        </div>
+      <div class="border-b border-zinc-200 p-2 dark:border-zinc-800">
+        <ConnectionSwitcher />
       </div>
 
       <nav class="flex-1 space-y-0.5 overflow-y-auto p-2">
@@ -66,8 +63,13 @@ async function disconnect() {
       <div class="border-t border-zinc-200 p-3 dark:border-zinc-800">
         <p class="mb-2 truncate text-xs text-zinc-500 dark:text-zinc-400">
           Signed in as <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ connection.username }}</span>
+          <template v-if="connection.connections.length > 1">
+            · {{ connection.connections.length }} connections open
+          </template>
         </p>
-        <button class="btn btn-ghost w-full" @click="disconnect">Disconnect</button>
+        <button class="btn btn-ghost w-full" @click="disconnectAll">
+          {{ connection.connections.length > 1 ? 'Disconnect all' : 'Disconnect' }}
+        </button>
       </div>
     </aside>
 
@@ -78,6 +80,10 @@ async function disconnect() {
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
+
+        <span class="truncate text-sm font-medium text-zinc-700 lg:hidden dark:text-zinc-200">
+          {{ connection.activeLabel }}
+        </span>
 
         <span
           v-if="connection.productionMode"

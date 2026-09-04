@@ -54,6 +54,12 @@ const routes = [
         component: () => import('@/views/ExplorerView.vue'),
         meta: { title: 'REST Explorer' },
       },
+      {
+        path: 'connections',
+        name: 'connections',
+        component: () => import('@/views/ConnectionsView.vue'),
+        meta: { title: 'Connections' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
@@ -68,7 +74,8 @@ const router = createRouter({
 router.beforeEach((to) => {
   const connection = useConnectionStore()
   if (to.meta.public) {
-    return connection.connected && to.name === 'login' ? { name: 'dashboard' } : true
+    const addingAnother = to.name === 'login' && to.query.add
+    return connection.connected && to.name === 'login' && !addingAnother ? { name: 'dashboard' } : true
   }
   if (!connection.connected) {
     return { name: 'login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
