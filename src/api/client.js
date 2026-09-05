@@ -37,6 +37,11 @@ export class WlsError extends Error {
     return this.status === 401
   }
 
+  /** The user is signed in, but their WebLogic role does not allow this. */
+  get isForbidden() {
+    return this.status === 403
+  }
+
   get fullText() {
     return [this.message, this.detail, ...this.messages].filter(Boolean).join(' — ')
   }
@@ -62,6 +67,25 @@ function describeError(status, payload, path) {
   const messages = (payload?.messages || [])
     .map((m) => (typeof m === 'string' ? m : m?.message))
     .filter(Boolean)
+
+  // 403 is the one status whose own words never help: WebLogic answers with
+  // "Forbidden", or with a security-policy sentence that reads like a bug. The
+  // console says what it actually means and keeps the server's words below it,
+  // so every caller gets the same sentence without repeating it at 23 sites.
+  if (status === 403) {
+    const reason = [payload?.title, payload?.detail, ...messages]
+      .filter(Boolean)
+      .filter((line, index, all) => line !== 'Not authorized for this operation' && all.indexOf(line) === index)
+      .join(' — ')
+    return new WlsError(t('You are not authorized to do this'), {
+      status,
+      detail:
+        reason ||
+        t('Your WebLogic user does not have the role this operation needs. Ask a domain administrator.'),
+      path,
+    })
+  }
+
   const title =
     payload?.title ||
     messages[0] ||

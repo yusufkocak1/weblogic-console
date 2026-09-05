@@ -224,11 +224,11 @@ export function curlForServerAction(server, action, context = {}) {
   return curlFor('POST', `/domainRuntime/serverLifeCycleRuntimes/${encodeURIComponent(server)}/${action}`, {}, context)
 }
 
-export function curlForDeploymentAction(app, action, targets = [], context = {}) {
+export function curlForDeploymentAction(app, action, context = {}) {
   return curlFor(
     'POST',
     `/domainRuntime/deploymentManager/appDeploymentRuntimes/${encodeURIComponent(app)}/${action}`,
-    targets.length ? { targets, deploymentOptions: {} } : {},
+    {},
     context,
   )
 }

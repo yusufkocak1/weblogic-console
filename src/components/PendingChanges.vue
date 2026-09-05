@@ -28,7 +28,8 @@ const count = computed(() => changes.pending.length)
 </script>
 
 <template>
-  <section v-if="changes.loaded" class="mb-4">
+  <!-- Nothing to say about a lock this user is not allowed to reach. -->
+  <section v-if="changes.loaded && !changes.forbidden" class="mb-4">
     <!-- Someone else has the lock: nothing here can be saved until they finish. -->
     <div
       v-if="heldByOther"

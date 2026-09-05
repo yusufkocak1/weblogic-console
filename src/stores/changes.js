@@ -55,6 +55,8 @@ export const useChangesStore = defineStore('changes', {
     /** Readable pending changes. Empty when the release does not expose them. */
     pending: [],
     pendingKnown: false,
+    /** WebLogic refuses the edit tree to this user: there is no lock to show. */
+    forbidden: false,
     loaded: false,
     /** '' | 'saving' | 'activating' | 'discarding' — drives the buttons. */
     busy: '',
@@ -74,13 +76,27 @@ export const useChangesStore = defineStore('changes', {
         mergeNeeded: false,
         pending: [],
         pendingKnown: false,
+        forbidden: false,
         loaded: false,
         busy: '',
       })
     },
 
     async refresh(options) {
-      const status = await config.changeManager(options)
+      let status
+      try {
+        status = await config.changeManager(options)
+      } catch (err) {
+        // A role that cannot reach the edit tree is an answer, not a failure:
+        // the pages read `forbidden` and open read-only rather than showing an
+        // error where the lock bar belongs.
+        if (!err?.isForbidden) throw err
+        this.reset()
+        this.forbidden = true
+        this.loaded = true
+        return
+      }
+      this.forbidden = false
       this.locked = Boolean(status?.locked)
       this.lockOwner = status?.lockOwner || ''
       this.hasChanges = Boolean(status?.hasChanges)

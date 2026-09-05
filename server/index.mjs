@@ -199,6 +199,7 @@ function publicConnection(connection, activeId) {
     username: connection.username,
     baseUrl: connection.baseUrl,
     domain: connection.domain,
+    permissions: connection.permissions || { configure: true, known: false },
     connectedAt: connection.connectedAt,
     active: connection.id === activeId,
   }
@@ -292,6 +293,34 @@ function normalizeUpstreamError(err) {
   }
   const detail = map[code] || err?.message || 'The request to the AdminServer failed.'
   return Object.assign(new Error(detail), { status: err?.status || 502, code })
+}
+
+/**
+ * What this user is allowed to change, asked once at connect.
+ *
+ * WebLogic does not report a user's roles over REST, but it does answer 403 to
+ * whatever the role cannot reach, and every configuration change goes through
+ * the edit tree. So one read of the change manager separates a Monitor from an
+ * operator who can configure the domain — which lets the settings pages open
+ * read-only instead of offering a Save that is refused at the end.
+ *
+ * An inconclusive answer leaves `configure` true with `known` false: guessing
+ * "no" would lock a capable user out of their own domain, so the UI stays open
+ * and the 403 message carries the explanation if it ever comes.
+ */
+async function probePermissions(connection) {
+  try {
+    const res = await callAdminServer(connection, {
+      method: 'GET',
+      path: REST_BASE + '/edit/changeManager?links=none',
+      timeoutMs: 15_000,
+    })
+    if (res.status === 403) return { configure: false, known: true }
+    if (res.status < 400) return { configure: true, known: true }
+    return { configure: true, known: false }
+  } catch {
+    return { configure: true, known: false }
+  }
 }
 
 // ---------------------------------------------------------------- history
@@ -538,6 +567,8 @@ async function handleCreateConnection(req, res) {
     )
   }
 
+  connection.permissions = await probePermissions(connection)
+
   // A name the user gave wins; otherwise keep whatever this target is already
   // saved as, so reconnecting never silently renames an existing profile.
   const saved = profiles.find((p) => profileKey(p) === profileKey({ host, port, ssl, username }))
@@ -650,6 +681,26 @@ async function handleProxy(req, res, restPath) {
     })
   } catch (err) {
     return sendError(res, err.status || 502, 'Cannot reach the AdminServer', err.message)
+  }
+
+  if (upstream.status === 403) {
+    // The probe at connect can go out of date — a role can change, and some
+    // MBeans are protected on their own — so a refusal here updates what the
+    // console believes about this user.
+    if (restPath.startsWith('/edit')) connection.permissions = { configure: false, known: true }
+    // WebLogic answers 403 with an HTML page as often as with JSON, and an HTML
+    // body reaches the browser as an unreadable error. Anything that is not
+    // JSON is rewritten as the console's own error shape.
+    const text = upstream.body.toString('utf8').trim()
+    if (!text.startsWith('{')) {
+      const detail = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)
+      return sendError(
+        res,
+        403,
+        'Not authorized for this operation',
+        detail || `The AdminServer refused this request for ${connection.username}.`,
+      )
+    }
   }
 
   res.writeHead(upstream.status, {

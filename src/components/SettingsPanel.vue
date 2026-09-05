@@ -56,6 +56,19 @@ const lockedByOther = computed(
   () => changes.locked && changes.lockOwner && changes.lockOwner !== connection.username,
 )
 
+/**
+ * This user's role does not allow configuration changes at all.
+ *
+ * WebLogic answers 403 to the edit tree rather than listing what a role may do,
+ * so the backend asks once at connect and the store remembers any later refusal.
+ * Knowing it up front is the whole point: filling a form in and losing it at the
+ * Save is the worst way to find out, so the panel says so and shows values only.
+ */
+const readOnly = computed(() => !connection.canConfigure || changes.forbidden)
+
+/** Nothing here can be edited, whether by role or because of the domain lock. */
+const frozen = computed(() => readOnly.value || lockedByOther.value)
+
 // ------------------------------------------------------------------ loading
 
 /**
@@ -114,8 +127,28 @@ async function load() {
         category.groups.map(async (def) => {
           const path = def.path(name)
           const mbean = await read(path)
-          if (mbean?.__error) return { category, def, path, values: {}, draft: {}, error: mbean.__error }
-          return { category, def, path, values: toForm(def.fields, mbean), draft: toForm(def.fields, mbean), error: null }
+          // A refused read and a missing MBean both come back as an error, but
+          // they mean different things to the operator, so they are kept apart.
+          if (mbean?.__error) {
+            return {
+              category,
+              def,
+              path,
+              values: {},
+              draft: {},
+              error: mbean.__error,
+              forbidden: Boolean(mbean.__error.isForbidden),
+            }
+          }
+          return {
+            category,
+            def,
+            path,
+            values: toForm(def.fields, mbean),
+            draft: toForm(def.fields, mbean),
+            error: null,
+            forbidden: false,
+          }
         }),
       ),
     )
@@ -329,7 +362,7 @@ function logChange({ fields, undoEdits }, { activated, error }) {
 }
 
 async function save({ activate }) {
-  if (!dirty.value || saving.value) return
+  if (!dirty.value || saving.value || frozen.value) return
   const pending = edits.value
   const count = changedFields.value.length
   const deferredCount = deferred.value.length
@@ -384,10 +417,21 @@ async function save({ activate }) {
   } catch (err) {
     if (!sessionGone(err)) {
       logChange(record, { activated: false, error: err })
-      ui.error(
-        t('Could not save the changes'),
-        `${err.fullText || err.message} — ${t('anything saved before the failure is still waiting in the pending changes.')}`,
-      )
+      if (err.isForbidden) {
+        // Now it is certain rather than probed: fold it into the connection so
+        // every settings page in this session opens read-only from here on.
+        connection.markCannotConfigure()
+        ui.error(
+          t('You are not authorized to change these settings'),
+          err.detail ||
+            t('Your WebLogic user may read this configuration but not change it. Ask a domain administrator.'),
+        )
+      } else {
+        ui.error(
+          t('Could not save the changes'),
+          `${err.fullText || err.message} — ${t('anything saved before the failure is still waiting in the pending changes.')}`,
+        )
+      }
       saving.value = false
       await load()
     }
@@ -556,6 +600,24 @@ load()
       </p>
     </HelpPanel>
 
+    <!-- Said once, at the top, rather than as a badge on every field. -->
+    <div
+      v-if="readOnly"
+      class="mb-4 rounded-xl border border-zinc-300 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900"
+    >
+      <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        {{ $t('These settings are read-only for you') }}
+      </p>
+      <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+        {{
+          $t(
+            'Your WebLogic user ({user}) may read this domain but not change its configuration, so the fields below show the current values and cannot be edited. A domain administrator can grant the role this needs.',
+            { user: connection.username },
+          )
+        }}
+      </p>
+    </div>
+
     <PendingChanges @activate="activatePending" @discard="discardPending" />
 
     <p v-if="intro" class="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{{ intro }}</p>
@@ -578,9 +640,17 @@ load()
           <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ group.def.title }}</h3>
           <p class="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{{ group.def.description }}</p>
 
+          <!-- Refused rather than absent: nothing is wrong, it is just not ours. -->
+          <p
+            v-if="group.forbidden"
+            class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300"
+          >
+            {{ $t('You are not authorized to read these settings, so they are not shown.') }}
+          </p>
+
           <!-- A group can be missing on older releases; the rest still works. -->
           <p
-            v-if="group.error"
+            v-else-if="group.error"
             class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
           >
             {{ $t('These settings could not be read from this domain —') }}
@@ -594,7 +664,7 @@ load()
               :field="field"
               :original="group.values[field.attr]"
               :model-value="group.draft[field.attr]"
-              :disabled="lockedByOther || saving"
+              :disabled="frozen || saving"
               @update:model-value="group.draft[field.attr] = $event"
             />
           </div>
@@ -609,7 +679,7 @@ load()
       leave-active-class="transition duration-100 ease-in"
       leave-to-class="translate-y-3 opacity-0"
     >
-      <div v-if="dirty" class="fixed inset-x-0 bottom-0 z-30 flex justify-center p-4">
+      <div v-if="dirty && !readOnly" class="fixed inset-x-0 bottom-0 z-30 flex justify-center p-4">
         <div class="card flex max-w-3xl flex-wrap items-center gap-3 p-3 shadow-lg">
           <div class="min-w-0">
             <p class="text-sm font-medium text-zinc-900 dark:text-zinc-50">

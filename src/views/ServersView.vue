@@ -101,6 +101,25 @@ const COLUMNS = computed(() => [
   },
   { key: 'actions', label: '', sortable: false, align: 'right' },
 ])
+
+/** Standalone servers have no cluster, and that is worth being able to pick. */
+const STANDALONE = '~standalone'
+
+const FILTERS = computed(() => [
+  {
+    key: 'state',
+    label: t('State'),
+    hint: t('Keeps only the servers in one lifecycle state — the quickest way to see what is not RUNNING.'),
+    value: (row) => row.state,
+  },
+  {
+    key: 'cluster',
+    label: t('Cluster'),
+    hint: t('Keeps only the members of one cluster, or the servers that belong to none.'),
+    value: (row) => (row.cluster === '—' ? STANDALONE : row.cluster),
+    format: (value) => (value === STANDALONE ? t('Standalone') : value),
+  },
+])
 </script>
 
 <template>
@@ -159,6 +178,7 @@ const COLUMNS = computed(() => [
       v-model:selected="selected"
       :columns="COLUMNS"
       :rows="rows"
+      :filters="FILTERS"
       :loading="loading"
       :error="error && !data ? error : null"
       state-key="main"

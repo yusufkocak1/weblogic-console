@@ -36,6 +36,20 @@ export const useConnectionStore = defineStore('connection', {
     productionMode() {
       return Boolean(this.active?.domain?.productionModeEnabled)
     },
+    /**
+     * Whether this user may change the domain's configuration. The backend
+     * probes it once at connect — WebLogic exposes no role list, but it does
+     * refuse the edit tree — and revises it whenever a 403 comes back from an
+     * edit-tree call. False makes the settings pages open read-only instead of
+     * offering a Save that would be refused at the end.
+     */
+    canConfigure() {
+      return this.active?.permissions?.configure !== false
+    },
+    /** True only when WebLogic actually answered; false means we are guessing. */
+    permissionsKnown() {
+      return Boolean(this.active?.permissions?.known)
+    },
     target() {
       return this.active ? `${this.active.host}:${this.active.port}` : ''
     },
@@ -127,6 +141,16 @@ export const useConnectionStore = defineStore('connection', {
 
     async deleteProfile(id) {
       this.apply(await api.deleteProfile(id))
+    },
+
+    /**
+     * Remember a refusal the moment it arrives. The backend records the same
+     * thing from the proxy, but the UI should not need a round trip to stop
+     * offering an edit WebLogic has just declined.
+     */
+    markCannotConfigure() {
+      const active = this.active
+      if (active) active.permissions = { configure: false, known: true }
     },
 
     /** Called when the backend reports the session is gone. */

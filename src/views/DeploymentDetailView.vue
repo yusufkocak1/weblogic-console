@@ -164,14 +164,14 @@ async function runAction(action) {
     script: {
       subtitle: t('{action} {app}', { action: label, app: name.value }),
       wlst: wlstForDeploymentAction(name.value, action, targets.value, scriptContext()),
-      curl: curlForDeploymentAction(name.value, action, targets.value, scriptContext()),
+      curl: curlForDeploymentAction(name.value, action, scriptContext()),
     },
   })
   if (!ok) return
 
   busy.value = true
   try {
-    await wls.deploymentAction(name.value, action, targets.value)
+    await wls.deploymentAction(name.value, action)
     logDeployment(action)
     ui.success(
       t('{action} requested', { action: label }),
@@ -288,19 +288,25 @@ async function undeploy() {
           <button
             class="btn btn-ghost"
             :title="
-              $t(
-                'Upload a new archive over this deployment, keeping its name and targets — this is how a new build goes out',
-              )
+              connection.canConfigure
+                ? $t(
+                    'Upload a new archive over this deployment, keeping its name and targets — this is how a new build goes out',
+                  )
+                : $t('Your WebLogic user is not allowed to change this domain’s configuration.')
             "
-            :disabled="busy"
+            :disabled="busy || !connection.canConfigure"
             @click="deployDialog.show({ mode: 'redeploy', name, stagingMode: configured?.stagingMode, targets })"
           >
             {{ $t('Redeploy') }}
           </button>
           <button
             class="btn btn-danger"
-            :title="$t('Remove this application from the domain configuration entirely')"
-            :disabled="busy"
+            :title="
+              connection.canConfigure
+                ? $t('Remove this application from the domain configuration entirely')
+                : $t('Your WebLogic user is not allowed to change this domain’s configuration.')
+            "
+            :disabled="busy || !connection.canConfigure"
             @click="undeploy"
           >
             {{ $t('Undeploy') }}

@@ -66,6 +66,9 @@ const instancesOf = (name) => {
   return found
 }
 
+/** The dropdown value standing in for "WebLogic reports no state at all". */
+const NOT_ACTIVE = '~none'
+
 const rows = computed(() => {
   const states = data.value?.states
   return items(data.value?.configs).map((config) => {
@@ -127,6 +130,34 @@ const COLUMNS = computed(() => [
     hint: t('How the archive reaches each server: stage copies it to the server, nostage leaves it on a shared path that every server must be able to read, external_stage means you copy it yourself.'),
   },
   { key: 'actions', label: '', sortable: false, align: 'right' },
+])
+
+/**
+ * What an operator narrows a long deployment list by: what state it is in, what
+ * kind of module it is, and which target it is on. The target filter reads the
+ * row's own target list rather than the joined text, so picking a cluster keeps
+ * every application on it and nothing that merely mentions it.
+ */
+const FILTERS = computed(() => [
+  {
+    key: 'state',
+    label: t('State'),
+    hint: t('Keeps only the applications in one state. "Not active" is the state WebLogic reports nothing for — usually because the target servers are down.'),
+    value: (row) => row.state || NOT_ACTIVE,
+    format: (value) => (value === NOT_ACTIVE ? t('Not active') : value),
+  },
+  {
+    key: 'type',
+    label: t('Type'),
+    hint: t('Keeps only one kind of module: war, ear, jar and so on.'),
+    value: (row) => row.moduleType,
+  },
+  {
+    key: 'target',
+    label: t('Target'),
+    hint: t('Keeps only the applications deployed to one server or cluster.'),
+    value: (row) => row.targetList,
+  },
 ])
 
 const LIB_COLUMNS = computed(() => [
@@ -212,14 +243,14 @@ async function runAction(row, action) {
     script: {
       subtitle: t('{action} {app}', { action: label, app: row.name }),
       wlst: wlstForDeploymentAction(row.name, action, row.targetList, scriptContext()),
-      curl: curlForDeploymentAction(row.name, action, row.targetList, scriptContext()),
+      curl: curlForDeploymentAction(row.name, action, scriptContext()),
     },
   })
   if (!ok) return
 
   busyApp.value = row.name
   try {
-    await wls.deploymentAction(row.name, action, row.targetList)
+    await wls.deploymentAction(row.name, action)
     logDeployment(row.name, action, row.targetList)
     ui.success(t('{action} requested', { action: label }), t('{app} — state refreshes shortly.', { app: row.name }))
     setTimeout(reload, 1500)
@@ -255,7 +286,7 @@ async function runBulk(action) {
   for (const row of chosen) {
     busyApp.value = row.name
     try {
-      await wls.deploymentAction(row.name, action, row.targetList)
+      await wls.deploymentAction(row.name, action)
       // Logged per application rather than as one bulk entry, so each keeps
       // its own targets and its own rollback.
       logDeployment(row.name, action, row.targetList)
@@ -358,7 +389,12 @@ function redeploy(row) {
       <template #actions>
         <button
           class="btn btn-primary"
-          :title="$t('Upload a WAR, EAR or JAR and install it in this domain')"
+          :disabled="!connection.canConfigure"
+          :title="
+            connection.canConfigure
+              ? $t('Upload a WAR, EAR or JAR and install it in this domain')
+              : $t('Your WebLogic user is not allowed to change this domain’s configuration.')
+          "
           @click="deployDialog.show({ mode: 'deploy' })"
         >
           {{ $t('Deploy') }}
@@ -404,6 +440,7 @@ function redeploy(row) {
       v-model:selected="selected"
       :columns="COLUMNS"
       :rows="rows"
+      :filters="FILTERS"
       :loading="loading"
       :error="error && !data ? error : null"
       state-key="main"
@@ -474,16 +511,24 @@ function redeploy(row) {
           </button>
           <button
             class="btn btn-ghost px-2 py-1 text-xs"
-            :title="$t('Upload a new archive over this deployment, keeping its name and targets')"
-            :disabled="busyApp === row.name"
+            :title="
+              connection.canConfigure
+                ? $t('Upload a new archive over this deployment, keeping its name and targets')
+                : $t('Your WebLogic user is not allowed to change this domain’s configuration.')
+            "
+            :disabled="busyApp === row.name || !connection.canConfigure"
             @click="redeploy(row)"
           >
             {{ $t('Redeploy') }}
           </button>
           <button
             class="btn btn-danger px-2 py-1 text-xs"
-            :title="$t('Remove this application from the domain configuration entirely')"
-            :disabled="busyApp === row.name"
+            :title="
+              connection.canConfigure
+                ? $t('Remove this application from the domain configuration entirely')
+                : $t('Your WebLogic user is not allowed to change this domain’s configuration.')
+            "
+            :disabled="busyApp === row.name || !connection.canConfigure"
             @click="undeploy(row)"
           >
             {{ $t('Undeploy') }}

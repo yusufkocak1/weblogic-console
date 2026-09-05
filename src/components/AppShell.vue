@@ -207,6 +207,19 @@ watch(
           {{ connection.activeLabel }}
         </span>
 
+        <!-- Stated where it is always visible, not only on a settings page. -->
+        <span
+          v-if="!connection.canConfigure"
+          class="hidden rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-700 sm:inline dark:bg-zinc-700 dark:text-zinc-200"
+          :title="
+            $t(
+              'Your WebLogic user may read this domain but not change its configuration, so settings pages open read-only.',
+            )
+          "
+        >
+          {{ $t('Read-only') }}
+        </span>
+
         <span
           v-if="connection.productionMode"
           class="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-500/15 dark:text-amber-300"

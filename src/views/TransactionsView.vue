@@ -159,6 +159,16 @@ const COLUMNS = computed(() => [
   },
 ])
 
+/** A domain has a work manager per application per server, so the list gets long. */
+const WM_FILTERS = computed(() => [
+  {
+    key: 'server',
+    label: t('Server'),
+    hint: t('Keeps only the work managers on one server.'),
+    value: (row) => row.server,
+  },
+])
+
 const WM_COLUMNS = computed(() => [
   {
     key: 'name',
@@ -341,6 +351,7 @@ const WM_COLUMNS = computed(() => [
       <DataTable
         :columns="WM_COLUMNS"
         :rows="workManagers"
+        :filters="WM_FILTERS"
         row-key="key"
         state-key="wm"
         export-name="work-managers"

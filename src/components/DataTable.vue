@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import ErrorState from '@/components/ErrorState.vue'
 import InfoTip from '@/components/InfoTip.vue'
 import { useUrlState } from '@/composables/useUrlState'
@@ -29,6 +29,18 @@ const props = defineProps({
   selected: { type: Array, default: () => [] },
   /** Base file name for the CSV / JSON buttons. Empty hides them. */
   exportName: { type: String, default: '' },
+  /**
+   * Dropdowns beside the filter box, for the columns an operator picks from
+   * rather than types into — state, target, cluster.
+   *
+   *   { key, label, hint?, allLabel?, options?, value?, format? }
+   *
+   * `value(row)` returns what the row should match on: one value, or an array
+   * when a row belongs to several of them (its targets). Without it the row's
+   * column of the same key is used. `options` fixes the list and its order;
+   * without it the values present in the loaded rows are offered, sorted.
+   */
+  filters: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['retry', 'update:selected'])
@@ -37,12 +49,31 @@ const query = ref('')
 const sortKey = ref('')
 const sortDir = ref('asc')
 
+/** Filter key -> the chosen value; '' means "all", and is what the URL leaves out. */
+const chosen = reactive(Object.fromEntries(props.filters.map((filter) => [filter.key, ''])))
+
+const anyFilter = computed(() => props.filters.some((filter) => chosen[filter.key]))
+
+function clearFilters() {
+  for (const filter of props.filters) chosen[filter.key] = ''
+}
+
 if (props.stateKey) {
   const name = (suffix) => (props.stateKey === 'main' ? suffix : `${props.stateKey}_${suffix}`)
-  useUrlState(
-    { [name('q')]: query, [name('sort')]: sortKey, [name('dir')]: sortDir },
-    { [name('q')]: '', [name('sort')]: '', [name('dir')]: 'asc' },
-  )
+  const refs = { [name('q')]: query, [name('sort')]: sortKey, [name('dir')]: sortDir }
+  const defaults = { [name('q')]: '', [name('sort')]: '', [name('dir')]: 'asc' }
+  // A chosen state or target belongs in the URL for the same reason the search
+  // text does: "the stopped applications on ms2" should be a link.
+  for (const filter of props.filters) {
+    refs[name(filter.key)] = computed({
+      get: () => chosen[filter.key] ?? '',
+      set: (value) => {
+        chosen[filter.key] = value
+      },
+    })
+    defaults[name(filter.key)] = ''
+  }
+  useUrlState(refs, defaults)
 }
 
 function keyOf(row, index) {
@@ -59,10 +90,50 @@ function toggleSort(column) {
   }
 }
 
+/** What a row matches on for one filter, always as a list of strings. */
+function valuesOf(filter, row) {
+  const raw = filter.value ? filter.value(row) : row?.[filter.key]
+  const list = Array.isArray(raw) ? raw : [raw]
+  return list.filter((value) => value !== null && value !== undefined && value !== '').map(String)
+}
+
+/**
+ * The options one dropdown offers. A value that has gone from the rows but is
+ * still chosen stays on the list — otherwise the select would go blank while
+ * quietly hiding every row.
+ */
+function optionsFor(filter) {
+  const label = (value) => (filter.format ? filter.format(value) : value)
+  const seen = new Map()
+  if (filter.options) {
+    for (const option of filter.options) {
+      const value = String(typeof option === 'object' ? option.value : option)
+      seen.set(value, { value, label: typeof option === 'object' ? option.label : label(value) })
+    }
+  } else {
+    for (const row of props.rows) {
+      for (const value of valuesOf(filter, row)) if (!seen.has(value)) seen.set(value, { value, label: label(value) })
+    }
+  }
+  const current = chosen[filter.key]
+  if (current && !seen.has(current)) seen.set(current, { value: current, label: label(current) })
+  const list = [...seen.values()]
+  // An explicit list is already in the order the view meant it to be read in.
+  if (filter.options) return list
+  return list.sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { numeric: true }))
+}
+
+/** The dropdowns narrow the rows first; the search box runs over what is left. */
+const chosenRows = computed(() => {
+  const active = props.filters.filter((filter) => chosen[filter.key])
+  if (!active.length) return props.rows
+  return props.rows.filter((row) => active.every((filter) => valuesOf(filter, row).includes(chosen[filter.key])))
+})
+
 const filtered = computed(() => {
   const needle = query.value.trim().toLowerCase()
-  if (!needle) return props.rows
-  return props.rows.filter((row) =>
+  if (!needle) return chosenRows.value
+  return chosenRows.value.filter((row) =>
     props.columns.some((column) => {
       const value = row?.[column.key]
       return value !== null && value !== undefined && String(value).toLowerCase().includes(needle)
@@ -167,6 +238,37 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
           <path d="m20 20-3.5-3.5" />
         </svg>
       </div>
+      <div v-for="filter in filters" :key="filter.key" class="flex items-center gap-1">
+        <select
+          v-model="chosen[filter.key]"
+          class="max-w-[14rem] rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-700
+                 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500
+                 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+          :aria-label="$t('Filter by {label}', { label: filter.label })"
+          :title="$t('Show only the rows with this {label}', { label: filter.label })"
+        >
+          <option value="">{{ filter.allLabel || $t('Any {label}', { label: filter.label }) }}</option>
+          <option v-for="option in optionsFor(filter)" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <InfoTip
+          v-if="filter.hint"
+          :heading="filter.label"
+          :text="filter.hint"
+          :label="$t('What the {label} filter does', { label: filter.label })"
+        />
+      </div>
+
+      <button
+        v-if="anyFilter"
+        class="btn btn-ghost px-2 py-1 text-xs"
+        :title="$t('Drop every dropdown filter and show all the rows again')"
+        @click="clearFilters"
+      >
+        {{ $t('Clear filters') }}
+      </button>
+
       <slot name="toolbar" :rows="sorted" />
 
       <div v-if="exportName" class="flex items-center gap-1">
@@ -244,7 +346,7 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
           </tr>
           <tr v-else-if="!sorted.length">
             <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-3 py-10 text-center text-sm text-zinc-400">
-              {{ query ? $t('No rows match this filter.') : emptyText || $t('Nothing to show.') }}
+              {{ query || anyFilter ? $t('No rows match this filter.') : emptyText || $t('Nothing to show.') }}
             </td>
           </tr>
           <template v-else>

@@ -145,6 +145,32 @@ const bridges = computed(() => {
   return rows
 })
 
+/** Every JMS runtime row belongs to one server, and that is the usual question. */
+const SERVER_FILTERS = computed(() => [
+  {
+    key: 'server',
+    label: t('Server'),
+    hint: t('Keeps only the JMS servers running on one WebLogic server.'),
+    value: (row) => row.server,
+  },
+])
+
+/** A busy domain has more destinations than fit on a screen; these cut it down. */
+const DEST_FILTERS = computed(() => [
+  {
+    key: 'jms',
+    label: t('JMS server'),
+    hint: t('Keeps only the destinations hosted by one JMS server.'),
+    value: (row) => row.jmsServer,
+  },
+  {
+    key: 'server',
+    label: t('Server'),
+    hint: t('Keeps only the destinations on one WebLogic server.'),
+    value: (row) => row.server,
+  },
+])
+
 const SERVER_COLUMNS = computed(() => [
   {
     key: 'name',
@@ -333,6 +359,7 @@ const BRIDGE_COLUMNS = computed(() => [
     <DataTable
       :columns="SERVER_COLUMNS"
       :rows="jmsServers"
+      :filters="SERVER_FILTERS"
       row-key="key"
       state-key="main"
       export-name="jms-servers"
@@ -367,6 +394,7 @@ const BRIDGE_COLUMNS = computed(() => [
       <DataTable
         :columns="DEST_COLUMNS"
         :rows="destinations"
+        :filters="DEST_FILTERS"
         row-key="key"
         state-key="dest"
         export-name="jms-destinations"

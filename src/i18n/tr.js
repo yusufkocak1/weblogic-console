@@ -176,6 +176,13 @@ export default {
   'Type to keep only the rows containing this text. It matches every column shown here and filters the rows already loaded — it does not query the server.':
     'Yazdıkça yalnızca bu metni içeren satırlar kalır. Burada görünen bütün sütunlarda eşleşme arar ve hâlihazırda yüklenmiş satırları süzer — sunucuya sorgu göndermez.',
   'How the filter box works': 'Süzgeç kutusu nasıl çalışır',
+  'Any {label}': 'Tüm {label}',
+  'Filter by {label}': '{label} değerine göre süz',
+  'Show only the rows with this {label}': 'Yalnızca bu {label} değerine sahip satırları gösterir',
+  'What the {label} filter does': '{label} süzgeci ne yapar',
+  'Clear filters': 'Süzgeçleri temizle',
+  'Drop every dropdown filter and show all the rows again':
+    'Bütün açılır liste süzgeçlerini kaldırır ve satırların tamamını yeniden gösterir',
   'Save the rows shown here as a CSV file — the filter and sort you have applied are kept':
     'Burada görünen satırları CSV dosyası olarak kaydeder — uyguladığınız süzgeç ve sıralama korunur',
   'Save the rows shown here as JSON, for a script or a diff':
@@ -986,6 +993,30 @@ export default {
     "Yüklenmiş satırların uygulama adı, türü, target'ları ve staging moduyla eşleşir.",
   '{count} selected': '{count} seçili',
   'Open this application: deployment state and its settings': 'Bu uygulamayı aç: deployment durumu ve ayarları',
+  'Target': 'Target',
+  'Standalone': 'Bağımsız',
+  'Keeps only the applications in one state. "Not active" is the state WebLogic reports nothing for — usually because the target servers are down.':
+    'Yalnızca tek bir state\'teki uygulamaları bırakır. "Etkin değil", WebLogic\'in hiçbir state bildirmediği durumdur — genelde target server\'ları kapalı olduğu içindir.',
+  'Keeps only one kind of module: war, ear, jar and so on.':
+    'Yalnızca tek bir modül türünü bırakır: war, ear, jar ve benzeri.',
+  'Keeps only the applications deployed to one server or cluster.':
+    "Yalnızca tek bir server veya cluster'a deploy edilmiş uygulamaları bırakır.",
+  'Keeps only the data sources whose pools are in one state. "Not deployed" means no target server is running the pool at all.':
+    'Yalnızca havuzları tek bir state\'te olan data source\'ları bırakır. "Deploy edilmemiş", havuzu çalıştıran hiçbir target server olmadığı anlamına gelir.',
+  'Keeps only the data sources deployed to one server or cluster.':
+    "Yalnızca tek bir server veya cluster'a deploy edilmiş data source'ları bırakır.",
+  'Keeps only the servers in one lifecycle state — the quickest way to see what is not RUNNING.':
+    "Yalnızca tek bir yaşam döngüsü state'indeki server'ları bırakır — RUNNING olmayanları görmenin en hızlı yolu.",
+  'Keeps only the members of one cluster, or the servers that belong to none.':
+    "Yalnızca tek bir cluster'ın üyelerini ya da hiçbirine ait olmayan server'ları bırakır.",
+  'Keeps only the destinations hosted by one JMS server.':
+    "Yalnızca tek bir JMS server üzerindeki destination'ları bırakır.",
+  'Keeps only the JMS servers running on one WebLogic server.':
+    "Yalnızca tek bir WebLogic server üzerinde çalışan JMS server'ları bırakır.",
+  'Keeps only the work managers on one server.':
+    "Yalnızca tek bir server üzerindeki work manager'ları bırakır.",
+  'Keeps only the destinations on one WebLogic server.':
+    "Yalnızca tek bir WebLogic server üzerindeki destination'ları bırakır.",
   'Not active': 'Etkin değil',
   'Loaded on {servers}': '{servers} üzerinde yüklü',
   'on {count}': '{count} tanesinde',
@@ -1969,6 +2000,25 @@ export default {
   'Domain log': 'Domain logu',
   'The combined log on the AdminServer that collects what every server broadcasts.':
     "AdminServer üzerinde, bütün server'ların yaydığını toplayan birleşik log.",
+
+  // ------------------------------------------------------------- permissions
+  'You are not authorized to do this': 'Bu işlem için yetkiniz yok',
+  'Your WebLogic user does not have the role this operation needs. Ask a domain administrator.':
+    'WebLogic kullanıcınız bu işlemin gerektirdiği role sahip değil. Bir domain yöneticisine başvurun.',
+  'You are not authorized to change these settings': 'Bu ayarları değiştirme yetkiniz yok',
+  'Your WebLogic user may read this configuration but not change it. Ask a domain administrator.':
+    'WebLogic kullanıcınız bu yapılandırmayı okuyabilir ama değiştiremez. Bir domain yöneticisine başvurun.',
+  'These settings are read-only for you': 'Bu ayarlar sizin için salt okunur',
+  'Your WebLogic user ({user}) may read this domain but not change its configuration, so the fields below show the current values and cannot be edited. A domain administrator can grant the role this needs.':
+    "WebLogic kullanıcınız ({user}) bu domain'i okuyabilir ama yapılandırmasını değiştiremez; aşağıdaki alanlar mevcut değerleri gösterir ve düzenlenemez. Gereken rolü bir domain yöneticisi verebilir.",
+  'You are not authorized to read these settings, so they are not shown.':
+    'Bu ayarları okuma yetkiniz yok, bu yüzden gösterilmiyorlar.',
+  'Your WebLogic user may read this domain but not change its configuration, so settings pages open read-only.':
+    "WebLogic kullanıcınız bu domain'i okuyabilir ama yapılandırmasını değiştiremez; bu yüzden ayar sayfaları salt okunur açılır.",
+  'These are the targets this resource has. Changing them needs a role your user does not have.':
+    "Bu kaynağın hâlihazırdaki target'ları. Bunları değiştirmek, kullanıcınızda bulunmayan bir rol gerektiriyor.",
+  'Your WebLogic user is not allowed to change this domain’s configuration.':
+    "WebLogic kullanıcınızın bu domain'in yapılandırmasını değiştirme yetkisi yok.",
 
   // ----------------------------------------------------------- alerts: last rule 
   'Running server reports unhealthy': 'Çalışan server sağlıksız bildirirse',

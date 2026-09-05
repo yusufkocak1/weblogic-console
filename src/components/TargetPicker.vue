@@ -48,6 +48,9 @@ const selected = ref(new Set())
 const saving = ref(false)
 const loading = ref(false)
 
+/** Re-targeting writes to the edit tree, so it needs the same role a setting does. */
+const readOnly = computed(() => !connection.canConfigure)
+
 /** A server that belongs to a cluster is normally targeted through it. */
 const clusterOf = computed(() => {
   const map = new Map()
@@ -119,6 +122,7 @@ const added = computed(() => [...selected.value].filter((name) => !props.current
 const removed = computed(() => props.current.filter((name) => !selected.value.has(name)))
 
 async function save() {
+  if (readOnly.value) return
   const targets = chosenEntries.value.map((entry) => ({ kind: entry.kind, name: entry.name }))
   const body = [
     added.value.length ? t('Adding: {targets}.', { targets: added.value.join(', ') }) : '',
@@ -208,6 +212,13 @@ function showScript() {
       </button>
     </div>
 
+    <p
+      v-if="readOnly"
+      class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300"
+    >
+      {{ $t('These are the targets this resource has. Changing them needs a role your user does not have.') }}
+    </p>
+
     <p v-if="loading && !entries.length" class="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
       {{ $t('Reading the servers and clusters in this domain…') }}
     </p>
@@ -227,7 +238,7 @@ function showScript() {
           type="checkbox"
           class="mt-0.5"
           :checked="selected.has(entry.name)"
-          :disabled="saving"
+          :disabled="saving || readOnly"
           @change="toggle(entry)"
         />
         <span class="min-w-0">
@@ -237,7 +248,10 @@ function showScript() {
       </label>
     </div>
 
-    <div v-if="dirty" class="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+    <div
+      v-if="dirty && !readOnly"
+      class="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+    >
       <p class="text-xs text-zinc-500 dark:text-zinc-400">
         <span v-if="added.length" class="text-emerald-600 dark:text-emerald-400">+{{ added.join(', ') }}</span>
         <span v-if="added.length && removed.length"> · </span>

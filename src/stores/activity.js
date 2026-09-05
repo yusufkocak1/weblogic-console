@@ -239,7 +239,7 @@ export const useActivityStore = defineStore('activity', {
             await wls.serverAction(server, undo.action)
           }
         } else if (undo.type === 'deployment') {
-          await wls.deploymentAction(undo.app, undo.action, undo.targets || [])
+          await wls.deploymentAction(undo.app, undo.action)
         } else {
           throw new Error(t('This operation has no rollback.'))
         }

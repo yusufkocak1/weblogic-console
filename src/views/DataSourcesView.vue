@@ -42,6 +42,7 @@ const rows = computed(() =>
       driver: jdbc.JDBCDriverParams?.driverName || '—',
       jndi: (jdbc.JDBCDataSourceParams?.JNDINames || []).join(', ') || '—',
       targets: targetNames(resource.targets).join(', ') || '—',
+      targetList: targetNames(resource.targets),
       capacity: `${pool.initialCapacity ?? '?'} – ${pool.maxCapacity ?? '?'}`,
       state: instances.length ? (instances.find((i) => i.state !== 'Running')?.state ?? 'Running') : null,
       active: sum('activeConnectionsCurrentCount'),
@@ -100,6 +101,25 @@ const COLUMNS = computed(() => [
     ),
   },
   { key: 'actions', label: '', sortable: false, align: 'right' },
+])
+
+/** The dropdown value standing in for "no target server is running this pool". */
+const NOT_DEPLOYED = '~none'
+
+const FILTERS = computed(() => [
+  {
+    key: 'state',
+    label: t('State'),
+    hint: t('Keeps only the data sources whose pools are in one state. "Not deployed" means no target server is running the pool at all.'),
+    value: (row) => row.state || NOT_DEPLOYED,
+    format: (value) => (value === NOT_DEPLOYED ? t('Not deployed') : value),
+  },
+  {
+    key: 'target',
+    label: t('Target'),
+    hint: t('Keeps only the data sources deployed to one server or cluster.'),
+    value: (row) => row.targetList,
+  },
 ])
 
 async function testPool(row) {
@@ -173,6 +193,7 @@ async function testPool(row) {
     <DataTable
       :columns="COLUMNS"
       :rows="rows"
+      :filters="FILTERS"
       :loading="loading"
       :error="error && !data ? error : null"
       state-key="main"

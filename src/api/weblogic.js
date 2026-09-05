@@ -265,15 +265,19 @@ export async function deploymentStates(apps, options) {
 }
 
 /**
- * action is 'start' or 'stop'; targets restricts the operation to given servers.
- * The overload that takes targets also declares deploymentOptions, and the REST
- * layer matches an action by its full parameter set, so both have to be sent.
+ * action is 'start' or 'stop'.
+ *
+ * The runtime declares two overloads of each — `stop()` and
+ * `stop(targets, deploymentOptions)` — and chooses one by matching the request
+ * body against a full parameter set; anything else comes back as a parameter
+ * mismatch. The console always acts on every target a deployment has, which is
+ * exactly what the no-argument overload does, so it sends an empty body and
+ * leaves the matcher nothing to reject.
  */
-export function deploymentAction(app, action, targets, options) {
-  const body = targets?.length ? { targets, deploymentOptions: {} } : {}
+export function deploymentAction(app, action, options) {
   return post(
     `/domainRuntime/deploymentManager/appDeploymentRuntimes/${encodeURIComponent(app)}/${action}`,
-    body,
+    {},
     options,
   )
 }

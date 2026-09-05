@@ -443,9 +443,18 @@ section before you deploy it anywhere other than your own workstation.
   self-signed certs; it does mean the upstream connection is not authenticated.
 - **Connect with a role that matches the job.** A `Monitor` or `Operator` user
   is enough for everything except lifecycle and deployment operations. WebLogic
-  enforces this — the console just surfaces whatever the API allows for the user
-  you signed in as. The Compare page is a good use for a `Monitor` account: it
-  only reads.
+  enforces this; the console only reflects it. The Compare page is a good use for
+  a `Monitor` account: it only reads.
+
+  WebLogic exposes no list of what a role may do, but it does answer `403` to
+  what a role may not reach — so at connect the backend reads the edit tree once
+  and remembers the answer. A user who cannot configure the domain gets a
+  **Read-only** badge in the top bar, settings pages that open with a banner and
+  disabled fields instead of a Save that would be refused at the end, and greyed
+  Deploy, Redeploy and Undeploy buttons. Anything the probe cannot settle stays
+  enabled: a `403` arriving later is reported as *"You are not authorized to do
+  this"* with whatever WebLogic said underneath, and the console narrows what it
+  offers from then on.
 - **An uploaded archive passes through this process.** Deploying holds the file
   in the console's memory just long enough to forward it, and writes nothing to
   disk. `WLC_MAX_UPLOAD_MB` (256 by default) caps how large that can be; raise
