@@ -7,12 +7,13 @@
  * There is deliberately no separate "configuration" area — you change a thing
  * where you were already looking at it.
  *
- * The classic console shows WebLogic's own attribute names — MaxCapacity,
- * StuckThreadMaxTime, FileMinSize — and leaves you to work out what they do.
- * Here every field carries the name an operator would use, one sentence on what
- * happens when it is wrong, and when a new value actually takes effect. The
- * MBean attribute is still shown underneath, so anyone who knows WLST or the
- * Oracle documentation can map the two.
+ * A field is named by its MBean attribute — maxCapacity, stuckThreadMaxTime,
+ * fileMinSize — because that is the name WLST, the Oracle documentation and an
+ * operator's own notes use, and so it reads the same whichever language the
+ * console is set to. The classic console stops there and leaves you to work out
+ * what the attribute does; here it carries a plain-language gloss beside it, one
+ * sentence on what happens when it is wrong, and when a new value actually takes
+ * effect. `label` is that gloss, and it is translated; `attr` never is.
  *
  * Adding a setting means adding an entry here and nothing else: the page
  * renders whatever it finds in this file.

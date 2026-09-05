@@ -136,6 +136,16 @@ vocabulary that exists only inside this console and has to be translated back
 before it is useful anywhere else. So the console's own sentences are
 translated, and the product's nouns are not.
 
+**Settings fields are named by their MBean attribute.** A field on the data
+source page reads `maxCapacity`, with a short gloss beside it and the
+explanation underneath; only the gloss and the explanation are translated. The
+attribute name is the one string that is identical here, in WLST and in Oracle's
+documentation, so it is the same in every language.
+
+**Where the console does speak for itself, it uses the words operators use.** A
+filter is a *filtre*, not a *süzgeç*: the aim is the Turkish of a server room,
+not the purest word available.
+
 ### Adding a language
 
 Translation is keyed by the English string itself, so a missing entry renders as

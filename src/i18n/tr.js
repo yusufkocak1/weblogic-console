@@ -19,6 +19,12 @@
  * Where a term takes a Turkish suffix the apostrophe follows pronunciation, the
  * way Turkish technical writing does it: `server'lar` (read /sörvır/, so the
  * suffix is separated) but `loglar` (read as written, so it is not).
+ *
+ * The console's own words are the ones operators actually say, not the purest
+ * Turkish available for them: a filter is a `filtre`, never a `süzgeç`.
+ *
+ * Settings fields are named by their MBean attribute — `maxCapacity` stays
+ * `maxCapacity` — so only the short gloss beside it is translated here.
  */
 
 export default {
@@ -171,30 +177,30 @@ export default {
   'Back to dashboard': 'Genel Bakış’a dön',
 
   // ------------------------------------------ tables, staged changes and targets 
-  'Filter…': 'Süz…',
-  'Filter': 'Süzgeç',
+  'Filter…': 'Filtrele…',
+  'Filter': 'Filtre',
   'Type to keep only the rows containing this text. It matches every column shown here and filters the rows already loaded — it does not query the server.':
-    'Yazdıkça yalnızca bu metni içeren satırlar kalır. Burada görünen bütün sütunlarda eşleşme arar ve hâlihazırda yüklenmiş satırları süzer — sunucuya sorgu göndermez.',
-  'How the filter box works': 'Süzgeç kutusu nasıl çalışır',
+    'Yazdıkça yalnızca bu metni içeren satırlar kalır. Burada görünen bütün sütunlarda eşleşme arar ve hâlihazırda yüklenmiş satırları filtreler — sunucuya sorgu göndermez.',
+  'How the filter box works': 'Filtre kutusu nasıl çalışır',
   'Any {label}': 'Tüm {label}',
-  'Filter by {label}': '{label} değerine göre süz',
+  'Filter by {label}': '{label} değerine göre filtrele',
   'Show only the rows with this {label}': 'Yalnızca bu {label} değerine sahip satırları gösterir',
-  'What the {label} filter does': '{label} süzgeci ne yapar',
-  'Clear filters': 'Süzgeçleri temizle',
+  'What the {label} filter does': '{label} filtresi ne yapar',
+  'Clear filters': 'Filtreleri temizle',
   'Drop every dropdown filter and show all the rows again':
-    'Bütün açılır liste süzgeçlerini kaldırır ve satırların tamamını yeniden gösterir',
+    'Bütün açılır liste filtrelerini kaldırır ve satırların tamamını yeniden gösterir',
   'Save the rows shown here as a CSV file — the filter and sort you have applied are kept':
-    'Burada görünen satırları CSV dosyası olarak kaydeder — uyguladığınız süzgeç ve sıralama korunur',
+    'Burada görünen satırları CSV dosyası olarak kaydeder — uyguladığınız filtre ve sıralama korunur',
   'Save the rows shown here as JSON, for a script or a diff':
     'Burada görünen satırları bir script veya karşılaştırma için JSON olarak kaydeder',
   'Rows shown / rows loaded': 'Görünen satır / yüklenen satır',
   'Clear the selection': 'Seçimi temizle',
   'Select every row shown': 'Görünen bütün satırları seç',
-  'Select every row the filter is showing': 'Süzgecin gösterdiği bütün satırları seç',
+  'Select every row the filter is showing': 'Filtrenin gösterdiği bütün satırları seç',
   'Click to sort by {column}': '{column} sütununa göre sıralamak için tıklayın',
   'What the {column} column shows': '{column} sütunu ne gösterir',
   'Loading…': 'Yükleniyor…',
-  'No rows match this filter.': 'Bu süzgece uyan satır yok.',
+  'No rows match this filter.': 'Bu filtreye uyan satır yok.',
   'Nothing to show.': 'Gösterilecek bir şey yok.',
   'Select {name}': '{name} satırını seç',
   '{owner} is editing this domain right now': "{owner} şu anda bu domain'i düzenliyor",
@@ -552,7 +558,7 @@ export default {
     "Başlatma, o server'ın makinesinde çalışan bir Node Manager gerektirir. Başlat hemen başarısız oluyorsa sebep neredeyse her zaman budur.",
   'To act on several servers at once — a whole cluster, say — tick them on the left and use the buttons that appear above the table. They are requested one after another, and any that fail are named individually.':
     'Birden çok server üzerinde aynı anda işlem yapmak için — örneğin bütün bir cluster — soldan işaretleyin ve tablonun üstünde beliren düğmeleri kullanın. İstekler arka arkaya gönderilir ve başarısız olanlar tek tek adlarıyla bildirilir.',
-  'Filter servers…': "Server'ları süz…",
+  'Filter servers…': "Server'ları filtrele…",
   'Keeps the rows whose name, state, cluster or listen address contain this text. Useful on a domain with dozens of managed servers.':
     "Adı, durumu, cluster'ı veya listen adresi bu metni içeren satırları bırakır. Onlarca managed server bulunan bir domain'de işe yarar.",
   'Open this server: runtime detail and every setting it has': "Bu server'ı aç: runtime detayı ve bütün ayarları",
@@ -781,7 +787,7 @@ export default {
   'Test needs at least one target server running — a data source with no runtime instance cannot be tested.':
     "Test için en az bir target server'ın çalışıyor olması gerekir — runtime örneği olmayan bir data source test edilemez.",
   'No JDBC data sources are configured.': 'Tanımlı JDBC data source yok.',
-  'Filter data sources…': "Data source'ları süz…",
+  'Filter data sources…': "Data source'ları filtrele…",
   'Matches the data source name, state and targets of the rows already loaded.':
     "Yüklenmiş satırların data source adı, durumu ve target'larıyla eşleşir.",
   'Open this data source: live pool figures and every setting it has':
@@ -988,7 +994,7 @@ export default {
   'Deploy uploads a new archive and installs it. Redeploy replaces the archive of one already there, keeping its name and targets — that is how a new build goes out. Undeploy removes it from the domain altogether. All three are staged as configuration changes and activated, so a failed upload leaves the domain exactly as it was.':
     "Deploy et yeni bir arşiv yükleyip kurar. Yeniden deploy et, mevcut bir uygulamanın arşivini adını ve target'larını koruyarak değiştirir — yeni bir sürüm böyle çıkar. Undeploy et ise uygulamayı domain'den tamamen kaldırır. Üçü de yapılandırma değişikliği olarak bekletilip etkinleştirilir; bu yüzden başarısız bir yükleme domain'i olduğu gibi bırakır.",
   'Nothing is deployed to this domain.': "Bu domain'e deploy edilmiş bir şey yok.",
-  'Filter applications…': 'Uygulamaları süz…',
+  'Filter applications…': 'Uygulamaları filtrele…',
   'Matches the application name, type, targets and staging mode of the rows already loaded.':
     "Yüklenmiş satırların uygulama adı, türü, target'ları ve staging moduyla eşleşir.",
   '{count} selected': '{count} seçili',
@@ -1039,7 +1045,7 @@ export default {
     'Henüz commit edilmemiş bir transaction içinde gönderilmiş veya alınmış mesajlar ile onay bekleyen mesajlar. Sürekli yüksek bir değer, hiç onay vermeyen tüketicileri veya hiç commit edilmeyen transactionları işaret eder.',
   'High': 'Tepe',
   'The highest current count reached since the server started. Useful for spotting a backlog that has already drained.':
-    'Server başladığından beri ulaşılan en yüksek anlık sayı. Şimdiden erimiş bir birikmeyi fark etmekte işe yarar.',
+    'Server başladığından beri ulaşılan en yüksek anlık sayı. Şimdiden boşalmış bir birikmeyi fark etmekte işe yarar.',
   'Received': 'Alınan',
   'Total messages this JMS server has taken in since it started. It only ever grows; the rate it grows at is the interesting part.':
     "Bu JMS server'ın başladığından beri aldığı toplam mesaj. Yalnızca artar; asıl ilginç olan artış hızıdır.",
@@ -1115,27 +1121,27 @@ export default {
     'Commit edilmemiş transactionların içindeki veya onay bekleyen mesajlar. Bir mesajlaşma sorunu genelde ilk burada görünür.',
   'No JMS servers are running. Only running servers report JMS runtime.':
     "Çalışan JMS server yok. JMS runtime'ını yalnızca çalışan server'lar bildirir.",
-  'Filter JMS servers…': "JMS server'ları süz…",
+  'Filter JMS servers…': "JMS server'ları filtrele…",
   'Matches the JMS server name and the WebLogic server hosting it.':
     'JMS server adı ve onu barındıran WebLogic server ile eşleşir.',
-  'Filter destinations…': "Destination'ları süz…",
+  'Filter destinations…': "Destination'ları filtrele…",
   'Matches the destination name, its JMS server and the WebLogic server hosting it.':
     'Destination adı, JMS server’ı ve onu barındıran WebLogic server ile eşleşir.',
   'Persistent stores': 'Kalıcı depolar',
   '— where persistent messages and transaction records actually live':
     '— kalıcı mesajların ve transaction kayıtlarının gerçekte durduğu yer',
-  'Filter stores…': 'Depoları süz…',
+  'Filter stores…': 'Depoları filtrele…',
   'Matches the store name and the server it is open on.': 'Depo adı ve açık olduğu server ile eşleşir.',
   'Store-and-forward agents': "Store-and-forward agent'ları",
   '— messages held for a domain that cannot be reached right now':
     '— şu anda erişilemeyen bir domain için bekletilen mesajlar',
-  'Filter agents…': "Agent'ları süz…",
+  'Filter agents…': "Agent'ları filtrele…",
   'Matches the agent name, its type and the server it runs on.':
     'Agent adı, türü ve üzerinde çalıştığı server ile eşleşir.',
   'Messaging bridges': "Messaging bridge'ler",
   "— links between this domain's destinations and another provider":
     "— bu domain'in destination'ları ile başka bir sağlayıcı arasındaki bağlantılar",
-  'Filter bridges…': "Bridge'leri süz…",
+  'Filter bridges…': "Bridge'leri filtrele…",
   'Matches the bridge name, state and the server it runs on.':
     'Bridge adı, durumu ve üzerinde çalıştığı server ile eşleşir.',
   'Persistent stores, SAF agents and bridges could not be read from this domain — that part of the runtime tree is not exposed by this WebLogic release.':
@@ -1270,7 +1276,7 @@ export default {
   'Work managers': "Work manager'lar",
   '— which queue the pending requests are actually sitting in':
     '— bekleyen isteklerin gerçekte hangi kuyrukta durduğu',
-  'Filter work managers…': "Work manager'ları süz…",
+  'Filter work managers…': "Work manager'ları filtrele…",
   'Matches the work manager name and the server it belongs to.': 'Work manager adı ve ait olduğu server ile eşleşir.',
   'Last 15 minutes': 'Son 15 dakika',
   'Last hour': 'Son bir saat',
@@ -1290,7 +1296,7 @@ export default {
     'Daha geniş bir zaman aralığı ya da daha düşük bir önem derecesi deneyin.',
   'Server log records via the WLDF accessor': 'WLDF accessor üzerinden server log kayıtları',
   'Reads log records straight out of a running server through the WLDF accessor, so you can search them without shell access to the machine. Set the filters, press Fetch, and the newest records appear first.':
-    "Log kayıtlarını WLDF accessor aracılığıyla doğrudan çalışan bir server'dan okur; böylece makineye shell erişimi olmadan arama yapabilirsiniz. Süzgeçleri ayarlayıp Getir düğmesine basın; en yeni kayıtlar önce görünür.",
+    "Log kayıtlarını WLDF accessor aracılığıyla doğrudan çalışan bir server'dan okur; böylece makineye shell erişimi olmadan arama yapabilirsiniz. Filtreleri ayarlayıp Getir düğmesine basın; en yeni kayıtlar önce görünür.",
   'How to find the error behind an incident': 'Bir olayın arkasındaki hata nasıl bulunur',
   'Pick the Server that showed the problem. Only running servers can be queried.':
     "Sorunu gösteren Server'ı seçin. Yalnızca çalışan server'lar sorgulanabilir.",
@@ -1305,7 +1311,7 @@ export default {
   'The first matching record is usually the real cause; the ones after it are often knock-on failures. Note the subsystem in brackets — JDBC, JMS or Deployer tells you which page to look at next.':
     'Eşleşen ilk kayıt genelde asıl sebeptir; sonrakiler çoğu zaman zincirleme hatalardır. Köşeli parantez içindeki alt sisteme dikkat edin — JDBC, JMS veya Deployer size sırada hangi sayfaya bakacağınızı söyler.',
   "These filters and the sort are kept in the page's address, so the browser's back button steps through them and the link in the address bar reopens exactly this search for whoever you send it to.":
-    'Bu süzgeçler ve sıralama sayfanın adresinde tutulur; böylece tarayıcının geri düğmesi aralarında gezinir ve adres çubuğundaki bağlantı, gönderdiğiniz kişide tam olarak bu aramayı yeniden açar.',
+    'Bu filtreler ve sıralama sayfanın adresinde tutulur; böylece tarayıcının geri düğmesi aralarında gezinir ve adres çubuğundaki bağlantı, gönderdiğiniz kişide tam olarak bu aramayı yeniden açar.',
   "Which server's log to read. Each server writes its own log file, so pick the one that served the failing request. Stopped servers cannot be queried at all.":
     "Hangi server'ın logunun okunacağı. Her server kendi log dosyasını yazar; bu yüzden hatalı isteği karşılayanı seçin. Durmuş server'lar hiç sorgulanamaz.",
   'No running server': 'Çalışan server yok',
@@ -1326,7 +1332,7 @@ export default {
   'Most records to fetch, between 10 and 2000. The newest ones inside the window are kept, so a low limit on a wide window can hide older matches.':
     'Getirilecek en fazla kayıt sayısı; 10 ile 2000 arasında. Aralık içindeki en yeniler tutulur; bu yüzden geniş bir aralıkta düşük bir sınır, eski eşleşmeleri gizleyebilir.',
   'Run the query with these filters. Severity, log, window and time changes fetch on their own; the text box needs this button or the Enter key.':
-    'Sorguyu bu süzgeçlerle çalıştırır. Önem, log, aralık ve zaman değişiklikleri kendiliğinden getirir; metin kutusu için bu düğme ya da Enter tuşu gerekir.',
+    'Sorguyu bu filtrelerle çalıştırır. Önem, log, aralık ve zaman değişiklikleri kendiliğinden getirir; metin kutusu için bu düğme ya da Enter tuşu gerekir.',
   'Fetch': 'Getir',
   'From': 'Başlangıç',
   "Start of the range, read in this browser's timezone. Records before it are not shown.":
@@ -1340,7 +1346,7 @@ export default {
     'Kayıtları {column} sütununa göre sıralar. Tersine çevirmek için tekrar tıklayın.',
   '{count} records': '{count} kayıt',
   'Reading log records…': 'Log kayıtları okunuyor…',
-  'No records for these filters.': 'Bu süzgeçlere uyan kayıt yok.',
+  'No records for these filters.': 'Bu filtrelere uyan kayıt yok.',
   'Records are read through the WLDF data accessor on the selected server and trimmed to the time window shown above.':
     "Kayıtlar, seçili server üzerindeki WLDF veri accessor'ı aracılığıyla okunur ve yukarıda gösterilen zaman aralığına göre kırpılır.",
 
@@ -1385,17 +1391,17 @@ export default {
   'Connecting with a Monitor account is a good way to look around a production domain without being able to change it by accident.':
     "Monitor hesabıyla bağlanmak, bir production domain'ine yanlışlıkla dokunma riski olmadan göz atmanın iyi bir yoludur.",
   'No authentication providers were returned for this realm.': "Bu realm için kimlik doğrulama provider'ı dönmedi.",
-  'Filter providers…': "Provider'ları süz…",
+  'Filter providers…': "Provider'ları filtrele…",
   'Matches the provider name, type and control flag.': 'Provider adı, türü ve kontrol bayrağı ile eşleşir.',
   'Show the users and groups this provider holds': "Bu provider'ın içindeki kullanıcı ve grupları gösterir",
   'Accounts in {provider}': '{provider} içindeki hesaplar',
   '— reading…': '— okunuyor…',
   'This provider returned no users.': 'Bu provider hiç kullanıcı döndürmedi.',
-  'Filter users…': 'Kullanıcıları süz…',
+  'Filter users…': 'Kullanıcıları filtrele…',
   'Matches the user name and description of the accounts already loaded.':
     'Yüklenmiş hesapların kullanıcı adı ve açıklamasıyla eşleşir.',
   'This provider returned no groups.': 'Bu provider hiç grup döndürmedi.',
-  'Filter groups…': 'Grupları süz…',
+  'Filter groups…': 'Grupları filtrele…',
   'Matches the group name and description of the groups already loaded.':
     'Yüklenmiş grupların adı ve açıklamasıyla eşleşir.',
   'Read-only by design. Adding a user or changing a role mapping is a WLST or Remote Console operation.':

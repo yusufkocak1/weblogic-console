@@ -5,8 +5,10 @@ import InfoTip from '@/components/InfoTip.vue'
 import { t } from '@/i18n'
 
 /**
- * One configurable attribute: what it is called in plain language, what it
- * does, what it is set to now, and when a new value would take effect.
+ * One configurable attribute: its MBean name, a plain-language gloss of what
+ * that name means, what it does, what it is set to now, and when a new value
+ * would take effect. The MBean name leads because it is the one string that is
+ * the same here, in WLST and in Oracle's documentation, in every language.
  *
  * The explanation sits under the input rather than behind a tooltip on
  * purpose — this page exists so that nobody has to keep the WebLogic MBean
@@ -56,9 +58,13 @@ const inputClass = computed(() => [
 <template>
   <div class="min-w-0">
     <div class="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-      <label :for="`f-${field.attr}`" class="text-sm font-medium text-zinc-800 dark:text-zinc-100">
-        {{ field.label }}
+      <label
+        :for="`f-${field.attr}`"
+        class="font-mono text-sm font-medium text-zinc-800 dark:text-zinc-100"
+      >
+        {{ field.attr }}
       </label>
+      <span class="text-xs text-zinc-500 dark:text-zinc-400">{{ field.label }}</span>
 
       <span
         v-if="impact"
@@ -178,11 +184,11 @@ const inputClass = computed(() => [
 
     <p class="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{{ field.help }}</p>
 
-    <p class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-      <span class="font-mono">{{ field.attr }}</span>
-      <span v-if="changed" class="font-medium text-amber-600 dark:text-amber-400">
-        {{ $t('currently {value} on the AdminServer', { value: display(original) }) }}
-      </span>
+    <p
+      v-if="changed"
+      class="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+    >
+      {{ $t('currently {value} on the AdminServer', { value: display(original) }) }}
     </p>
   </div>
 </template>

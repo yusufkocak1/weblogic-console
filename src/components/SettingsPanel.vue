@@ -214,7 +214,7 @@ function display(value) {
  */
 const changeList = computed(() =>
   changedFields.value.map((field) => ({
-    label: field.label,
+    label: field.attr,
     note: field.impact && field.impact !== 'live' ? impacts()[field.impact]?.label : '',
     from: display(field.from),
     to: display(field.to),
@@ -233,7 +233,7 @@ const scriptFor = () => {
   const context = { username: connection.username, baseUrl: connection.baseUrl }
   return {
     subtitle: changedFields.value
-      .map((field) => `${field.label}: ${field.from ?? t('(empty)')} → ${field.to ?? t('(empty)')}`)
+      .map((field) => `${field.attr}: ${field.from ?? t('(empty)')} → ${field.to ?? t('(empty)')}`)
       .join(' · '),
     wlst: wlstForEdits(edits.value, context),
     curl: curlForEdits(edits.value, context),
@@ -690,7 +690,7 @@ load()
               }}
             </p>
             <p class="truncate text-xs text-zinc-500 dark:text-zinc-400">
-              {{ changedFields.map((field) => field.label).join(', ') }}
+              {{ changedFields.map((field) => field.attr).join(', ') }}
             </p>
           </div>
           <div class="ml-auto flex items-center gap-2">
