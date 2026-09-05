@@ -8,6 +8,7 @@ import ErrorState from '@/components/ErrorState.vue'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { LOCALES, locale, setLocale } from '@/i18n'
 
 const connection = useConnectionStore()
 const router = useRouter()
@@ -93,6 +94,17 @@ async function switchTo(item) {
             {{ addingAnother ? $t('Add another AdminServer') : $t('Connect to an AdminServer') }}
           </p>
         </div>
+
+        <!-- The rest of the console has this in its top bar, which nobody has
+             reached yet at this point. -->
+        <select
+          class="ml-auto rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+          :value="locale()"
+          :aria-label="$t('Language')"
+          @change="setLocale($event.target.value)"
+        >
+          <option v-for="option in LOCALES" :key="option.value" :value="option.value">{{ option.label }}</option>
+        </select>
       </div>
 
       <!-- Saved and open connections first: the common case is coming back to

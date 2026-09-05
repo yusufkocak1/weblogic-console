@@ -782,7 +782,16 @@ export function configSnapshot(options) {
             SSL: { links: [], fields: ['enabled', 'listenPort', 'hostnameVerificationIgnored'] },
             log: {
               links: [],
-              fields: ['fileName', 'rotationType', 'fileMinSize', 'fileCount', 'numberOfFilesLimited', 'loggerSeverity'],
+              fields: [
+                'fileName',
+                'rotationType',
+                'fileMinSize',
+                'fileCount',
+                'numberOfFilesLimited',
+                'loggerSeverity',
+                'logFileSeverity',
+                'stdoutSeverity',
+              ],
             },
           },
         },

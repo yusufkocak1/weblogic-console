@@ -163,7 +163,7 @@ const time = (at) => new Date(at).toLocaleTimeString(undefined, { hour12: false 
           />
         </label>
         <label class="flex items-center justify-between gap-2">
-          <span class="text-zinc-700 dark:text-zinc-200">Running server reports unhealthy</span>
+          <span class="text-zinc-700 dark:text-zinc-200">{{ $t('Running server reports unhealthy') }}</span>
           <input
             type="checkbox"
             :checked="alerts.rules.unhealthy"

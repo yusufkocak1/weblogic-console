@@ -13,7 +13,7 @@
  * of printing two command lines and leaving the arithmetic to the reader.
  */
 
-import { bytes, items, num } from '@/utils/format'
+import { bytes, items, num, targetNames } from '@/utils/format'
 import { parseJvmArgs } from '@/utils/jvm'
 
 export const GROUPS = [
@@ -173,9 +173,8 @@ function serverRows(server, jvm, runtime) {
   return out.rows
 }
 
-function clusterRows(cluster, heapByServer) {
+function clusterRows(cluster, members, heapByServer) {
   const out = collector()
-  const members = Array.isArray(cluster?.servers) ? cluster.servers : []
   out.add('members', 'Configured members', 'count', members.length)
   out.add(
     'heapTotal',
@@ -224,17 +223,24 @@ function dataSourceRows(dataSource) {
 export function resourceProfile(config, runtime, tuning) {
   const runtimeByServer = new Map(items(runtime?.serverRuntimes).map((entry) => [entry.name, entry]))
   const heapByServer = new Map()
+  const membersByCluster = new Map()
 
   const servers = items(config?.servers).map((server) => {
     const jvm = parseJvmArgs(server?.serverStart?.arguments)
     if (typeof jvm.heapMax === 'number') heapByServer.set(server.name, jvm.heapMax)
+    // Membership is held on the server, as a reference to its cluster. The
+    // cluster's own list says the same thing, but only one of the two is filled
+    // in on some releases, so both are used.
+    const [cluster] = targetNames(server?.cluster)
+    if (cluster) membersByCluster.set(cluster, [...(membersByCluster.get(cluster) || []), server.name])
     return { name: server.name, rows: serverRows(server, jvm, runtimeByServer.get(server.name)) }
   })
 
-  const clusters = items(config?.clusters).map((cluster) => ({
-    name: cluster.name,
-    rows: clusterRows(cluster, heapByServer),
-  }))
+  const clusters = items(config?.clusters).map((cluster) => {
+    const listed = targetNames(cluster?.servers)
+    const members = listed.length ? listed : membersByCluster.get(cluster.name) || []
+    return { name: cluster.name, rows: clusterRows(cluster, members, heapByServer) }
+  })
 
   const dataSources = items(config?.JDBCSystemResources).map((dataSource) => ({
     name: dataSource.name,

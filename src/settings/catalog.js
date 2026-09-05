@@ -706,7 +706,7 @@ const buildCategories = () => [
             label: t('How the plan reaches the servers'),
             help: t('The same choice for the deployment plan. Left empty it follows the archive, which is nearly always right; set it only when the plan lives somewhere the archive does not.'),
             type: 'select',
-            options: [{ value: '', label: t('Follow the archive (default)') }, ...STAGING_MODES],
+            options: [{ value: '', label: t('Follow the archive (default)') }, ...stagingModes()],
             impact: 'redeploy',
           },
         ],

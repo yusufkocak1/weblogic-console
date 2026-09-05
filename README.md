@@ -15,6 +15,7 @@ deployed to the AdminServer, and no agent runs anywhere near your servers.
 - [Why this exists](#why-this-exists)
 - [Quick start](#quick-start)
 - [Multiple domains](#multiple-domains)
+- [Language](#language)
 - [Configuration](#configuration)
 - [How it works](#how-it-works)
 - [Project layout](#project-layout)
@@ -118,6 +119,53 @@ new domain rather than leaving stale numbers on screen.
 
 Untick **Save this connection** on the connect screen for a one-off session that
 leaves nothing behind.
+
+## Language
+
+The console speaks English and Turkish. The picker sits in the top bar, next to
+the theme toggle, and on the connect screen — the choice is remembered in the
+browser. With nothing chosen it follows the browser's own language and falls
+back to English.
+
+**WebLogic's vocabulary is left in English in every language.** Server, cluster,
+domain, deployment, data source, heap, thread, JMS, JTA, MBean, WLST, RUNNING,
+ADMIN — these stay as they are. A Turkish operator types `srvr` into WLST, reads
+`<Server started in RUNNING mode>` in a log file, and searches Oracle's
+documentation in English; rendering *cluster* as *küme* would invent a second
+vocabulary that exists only inside this console and has to be translated back
+before it is useful anywhere else. So the console's own sentences are
+translated, and the product's nouns are not.
+
+### Adding a language
+
+Translation is keyed by the English string itself, so a missing entry renders as
+English rather than as a bare `page.header.refresh` key:
+
+```js
+// src/i18n/tr.js
+export default {
+  'Refresh': 'Yenile',
+  '{count} selected': '{count} seçili',
+}
+```
+
+1. Copy `src/i18n/tr.js` to `src/i18n/<code>.js` and translate the values.
+2. Add the language to `LOCALES` in `src/i18n/index.js`.
+3. Run `npm run i18n:check`.
+
+That last step is the price of keying by the English text: editing an English
+string orphans its translation silently. The script lists what each catalogue is
+missing, and with `--all` what it still carries that the source no longer uses.
+
+```
+$ npm run i18n:check
+tr — 1383/1383 translated
+Every string is translated.
+```
+
+Strings reached indirectly — a label pulled out of a table rather than written
+in place — are kept visible to that script by building the table in a function,
+so the `t()` calls stay in the source where it can see them.
 
 ## Configuration
 
@@ -234,6 +282,7 @@ fails the edit session is discarded, and the domain is left exactly as it was.
 ```
 server/index.mjs            connections, profiles, REST proxy, runtime sampler, static serving
 scripts/dev.mjs             runs backend + Vite together
+scripts/i18n-check.mjs      which strings are still missing a translation
 src/
   api/
     client.js               fetch wrapper for the local backend, error shaping
@@ -253,6 +302,9 @@ src/
     useUrlState.js          keeps filters and sorting in the page's address
   settings/
     catalog.js              every editable setting: plain name, help, when it applies
+  i18n/
+    index.js                the t() function, the locale, and the language list
+    tr.js                   Türkçe — keyed by the English string it replaces
   components/               AppShell, DataTable, CommandPalette, AlertsMenu,
                             ActivityMenu, SparkLine, TargetPicker, DeployDialog,
                             SnippetDialog, StateBadge, MeterBar, InfoTip,
