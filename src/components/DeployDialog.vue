@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
 import * as config from '@/api/config'
 import { bytes, items, targetNames } from '@/utils/format'
+import { useActivityStore } from '@/stores/activity'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
@@ -21,6 +22,7 @@ import InfoTip from '@/components/InfoTip.vue'
 const emit = defineEmits(['deployed'])
 
 const changes = useChangesStore()
+const activity = useActivityStore()
 const connection = useConnectionStore()
 const ui = useUiStore()
 
@@ -121,6 +123,28 @@ async function submit() {
 
     step.value = 'Activating the change…'
     await changes.activate()
+
+    activity.record({
+      kind: 'deployment',
+      title: `${mode.value === 'redeploy' ? 'Redeployed' : 'Deployed'} ${form.value.name.trim()}`,
+      summary: `${form.value.file.name} (${bytes(form.value.file.size)})${
+        chosen.value.length ? ` to ${chosen.value.map((entry) => entry.name).join(', ')}` : ''
+      }.`,
+      changes: [
+        {
+          label: form.value.name.trim(),
+          attr: 'sourcePath',
+          from: mode.value === 'redeploy' ? 'the previous archive' : '(not deployed)',
+          to: form.value.file.name,
+          note: form.value.stagingMode || '',
+        },
+      ],
+      undoNote:
+        mode.value === 'redeploy'
+          ? 'A redeploy cannot be rolled back from here: the console does not keep the archive it replaced. ' +
+            'Deploy the previous file again to go back.'
+          : 'A deployment is undone by undeploying the application, which is done from its own page.',
+    })
 
     ui.success(
       mode.value === 'redeploy' ? 'Redeployed' : 'Deployed',

@@ -5,15 +5,18 @@ import { useConnectionStore } from '@/stores/connection'
 import { useUiStore, REFRESH_OPTIONS } from '@/stores/ui'
 import { useHistoryStore } from '@/stores/history'
 import { useAlertsStore } from '@/stores/alerts'
+import { useActivityStore } from '@/stores/activity'
 import ConnectionSwitcher from '@/components/ConnectionSwitcher.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import AlertsMenu from '@/components/AlertsMenu.vue'
+import ActivityMenu from '@/components/ActivityMenu.vue'
 import InfoTip from '@/components/InfoTip.vue'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
 const history = useHistoryStore()
 const alerts = useAlertsStore()
+const activity = useActivityStore()
 const router = useRouter()
 
 const palette = ref(null)
@@ -104,8 +107,16 @@ async function disconnectAll() {
  * server going down is noticed while you are reading logs on another page — and
  * it follows the active connection, because the alerts belong to one domain.
  */
-onMounted(() => history.start(connection.activeId))
-onBeforeUnmount(() => history.stop())
+onMounted(() => {
+  history.start(connection.activeId)
+  // Sweeps the activity log so entries disappear when their window runs out,
+  // rather than the next time somebody happens to open the panel.
+  activity.start()
+})
+onBeforeUnmount(() => {
+  history.stop()
+  activity.stop()
+})
 
 watch(
   () => connection.activeId,
@@ -214,6 +225,8 @@ watch(
             </svg>
             <kbd class="rounded border border-zinc-300 px-1 text-[10px] text-zinc-400 dark:border-zinc-700">Ctrl K</kbd>
           </button>
+
+          <ActivityMenu />
 
           <AlertsMenu />
 

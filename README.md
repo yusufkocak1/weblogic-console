@@ -189,6 +189,39 @@ Sampling follows the browser rather than running forever. A session nobody has
 touched for fifteen minutes is skipped, so a console left open in a background
 tab overnight stops asking the AdminServer anything at all.
 
+### Activity and rollback
+
+Every operation this console performs against the domain is written to a local
+activity log: which attribute on which MBean went from which value to which
+other value, which server was started or shut down, which application was
+deployed. It is a log of *changes*, not of pages visited — the counter-clockwise
+arrow in the top bar answers "what did I just change?", which is the only
+question worth asking it.
+
+Where an operation has an inverse, the entry carries it, and **Roll back**
+replays it through the same REST calls:
+
+| Operation                        | What rolling it back does                                          |
+| -------------------------------- | ------------------------------------------------------------------ |
+| A setting saved (and activated)   | Writes the previous values back through the staged edit protocol, activating them if the original was activated |
+| Start / suspend / resume / shutdown | Requests the opposite operation, one server at a time              |
+| An application started or stopped | Starts or stops it again on the same targets                        |
+| Undeploy, deploy, redeploy        | Nothing — the domain no longer holds the archive it had, so the entry says so instead of offering a button that would lie |
+
+A rollback is a new change against the domain, not an erasure of the old one:
+it takes the lock and activates like any other edit, everybody else sees it, and
+a server that has been through a shutdown does not get its sessions back. The
+entry it leaves behind says as much.
+
+The log is an undo window, not an audit trail — WebLogic's own change log is
+the audit trail. Entries therefore expire, taking their rollback with them,
+**fifteen minutes** after the change by default. The window is settable per
+browser from the panel itself (5 minutes to 12 hours); shortening it drops
+whatever already falls outside the new window. Entries are held in
+`localStorage`, so they survive a reload, and each is tied to the connection it
+was made on — another domain's changes are never offered for replay against the
+one on screen.
+
 ### Deploying an archive
 
 An upload goes browser → console process → AdminServer as multipart form data,
@@ -212,6 +245,7 @@ src/
     changes.js              the domain's configuration lock and pending changes
     history.js              the browser's copy of the sampled runtime history
     alerts.js               the threshold rules, and what they have raised
+    activity.js             what this console changed, and how to put it back
   composables/
     useResource.js          load + auto-refresh + abort + reload on domain switch
     useReconnect.js         password prompt for bringing a saved profile back
@@ -220,8 +254,9 @@ src/
   settings/
     catalog.js              every editable setting: plain name, help, when it applies
   components/               AppShell, DataTable, CommandPalette, AlertsMenu,
-                            SparkLine, TargetPicker, DeployDialog, SnippetDialog,
-                            StateBadge, MeterBar, InfoTip, HelpPanel, …
+                            ActivityMenu, SparkLine, TargetPicker, DeployDialog,
+                            SnippetDialog, StateBadge, MeterBar, InfoTip,
+                            HelpPanel, …
   views/                    one view per console section
   utils/format.js           bytes, durations, health/target normalisation
   utils/target.js           parses t3:// and host:port addresses into fields
@@ -287,6 +322,11 @@ Across every page:
 - **Bulk operations and exports.** Tick a set of servers or applications and
   act on all of them at once; save what any table is showing as CSV or JSON,
   with the filter and sort you applied.
+- **Recent changes, with a way back.** The console keeps a short log of what
+  it changed — attribute by attribute, with the value before and the value
+  after — and offers *Roll back* on the ones that have an inverse. Entries
+  expire fifteen minutes after the change by default, and the window is
+  settable. See [Activity and rollback](#activity-and-rollback).
 - **Every change, as a script.** Any operation that changes something offers
   *Show script*: the same thing written as WLST, and as the exact REST call the
   console makes. Read it before confirming, or keep it for the change record.

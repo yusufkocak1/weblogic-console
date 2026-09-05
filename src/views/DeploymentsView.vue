@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import * as wls from '@/api/weblogic'
 import * as config from '@/api/config'
 import { useResource } from '@/composables/useResource'
+import { useActivityStore } from '@/stores/activity'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
@@ -17,6 +18,7 @@ import HelpPanel from '@/components/HelpPanel.vue'
 
 const ui = useUiStore()
 const changes = useChangesStore()
+const activity = useActivityStore()
 const connection = useConnectionStore()
 const confirm = ref(null)
 const deployDialog = ref(null)
@@ -141,6 +143,58 @@ const LIB_COLUMNS = [
   { key: 'sourcePath', label: 'Source', hint: 'Where the library archive was deployed from.' },
 ]
 
+/** Start and stop are each other's inverse, which is what makes them undoable. */
+const OPPOSITE = { start: 'stop', stop: 'start' }
+
+/**
+ * One deployment lifecycle operation as the activity log holds it: which
+ * application, on which targets, and the request that puts it back.
+ */
+function logDeployment(name, action, targets, error) {
+  const label = action === 'start' ? 'Start' : 'Stop'
+  const opposite = OPPOSITE[action]
+  const changes = [
+    {
+      label: name,
+      attr: 'state',
+      from: action === 'start' ? 'STOPPED' : 'ACTIVE',
+      to: action === 'start' ? 'ACTIVE' : 'STOPPED',
+      note: targets?.length ? `on ${targets.join(', ')}` : '',
+    },
+  ]
+
+  if (error) {
+    activity.record({
+      kind: 'deployment',
+      title: `Failed — ${label} ${name}`,
+      summary: error,
+      changes,
+      status: 'failed',
+      undoNote: 'Nothing to roll back: the request did not go through.',
+    })
+    return
+  }
+
+  activity.record({
+    kind: 'deployment',
+    title: `${label} ${name}`,
+    summary:
+      action === 'start'
+        ? `Put back into service on ${targets?.join(', ') || 'its targets'}.`
+        : `No longer served on ${targets?.join(', ') || 'its targets'}.`,
+    changes,
+    undo: {
+      type: 'deployment',
+      app: name,
+      action: opposite,
+      targets: [...(targets || [])],
+      summary: `${opposite === 'start' ? 'Started' : 'Stopped'} again.`,
+      body: `The application is ${opposite === 'start' ? 'started' : 'stopped'} again on the same targets.`,
+      hint: `${opposite === 'start' ? 'Start' : 'Stop'} ${name}`,
+    },
+  })
+}
+
 async function runAction(row, action) {
   const label = action === 'start' ? 'Start' : 'Stop'
   const ok = await confirm.value.ask({
@@ -162,9 +216,11 @@ async function runAction(row, action) {
   busyApp.value = row.name
   try {
     await wls.deploymentAction(row.name, action, row.targetList)
+    logDeployment(row.name, action, row.targetList)
     ui.success(`${label} requested`, `${row.name} — state refreshes shortly.`)
     setTimeout(reload, 1500)
   } catch (err) {
+    logDeployment(row.name, action, row.targetList, err.fullText || err.message)
     ui.error(`${label} failed for ${row.name}`, err.fullText || err.message)
   } finally {
     busyApp.value = null
@@ -193,8 +249,12 @@ async function runBulk(action) {
     busyApp.value = row.name
     try {
       await wls.deploymentAction(row.name, action, row.targetList)
+      // Logged per application rather than as one bulk entry, so each keeps
+      // its own targets and its own rollback.
+      logDeployment(row.name, action, row.targetList)
     } catch (err) {
       failures.push(`${row.name}: ${err.fullText || err.message}`)
+      logDeployment(row.name, action, row.targetList, err.fullText || err.message)
     }
   }
   busyApp.value = null
@@ -234,9 +294,25 @@ async function undeploy(row) {
     if (!changes.locked) await config.startEdit()
     await wls.undeployApplication(row.name)
     await changes.activate()
+    activity.record({
+      kind: 'deployment',
+      title: `Undeployed ${row.name}`,
+      summary: `Removed from the domain configuration and from ${row.targets}.`,
+      changes: [{ label: row.name, attr: 'appDeployments', from: row.sourcePath || 'deployed', to: '(removed)' }],
+      undoNote:
+        'An undeploy cannot be rolled back from here: the domain no longer holds the archive, so putting the ' +
+        'application back means deploying the file again.',
+    })
     ui.success('Undeployed', `${row.name} has been removed from the domain.`)
     reload()
   } catch (err) {
+    activity.record({
+      kind: 'deployment',
+      title: `Failed — undeploy ${row.name}`,
+      summary: err.fullText || err.message,
+      status: 'failed',
+      undoNote: 'The edit was discarded, so the application should still be deployed.',
+    })
     ui.error(`Could not undeploy ${row.name}`, err.fullText || err.message)
     await changes.discard().catch(() => {})
   } finally {

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import * as config from '@/api/config'
 import { IMPACTS, categoryByKey } from '@/settings/catalog'
+import { useActivityStore } from '@/stores/activity'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
@@ -35,6 +36,7 @@ const router = useRouter()
 const ui = useUiStore()
 const connection = useConnectionStore()
 const changes = useChangesStore()
+const activity = useActivityStore()
 
 const confirm = ref(null)
 const snippet = ref(null)
@@ -152,7 +154,7 @@ const edits = computed(() => {
       if (!byPath.has(group.path)) byPath.set(group.path, { path: group.path, attributes: {}, fields: [] })
       const entry = byPath.get(group.path)
       entry.attributes[field.attr] = coerce(field, after)
-      entry.fields.push({ ...field, from: before, to: after })
+      entry.fields.push({ ...field, from: before, to: after, __path: group.path })
     }
   }
   return [...byPath.values()]
@@ -163,6 +165,27 @@ const dirty = computed(() => changedFields.value.length > 0)
 
 /** Fields that will not do anything until something is restarted or redeployed. */
 const deferred = computed(() => changedFields.value.filter((field) => field.impact && field.impact !== 'live'))
+
+/** An edited value the way it should read in a sentence about it. */
+function display(value) {
+  if (value === null || value === undefined || value === '') return '(empty)'
+  if (typeof value === 'boolean') return value ? 'On' : 'Off'
+  return String(value)
+}
+
+/**
+ * The pending edits as the confirm dialog lists them. Confirming a count of
+ * fields is not really confirming anything, so the question shows each field
+ * with the value it holds now and the value it is about to get.
+ */
+const changeList = computed(() =>
+  changedFields.value.map((field) => ({
+    label: field.label,
+    note: field.impact && field.impact !== 'live' ? IMPACTS[field.impact]?.label : '',
+    from: display(field.from),
+    to: display(field.to),
+  })),
+)
 
 function revert() {
   for (const group of groups.value) group.draft = { ...group.values }
@@ -219,6 +242,76 @@ function describeDeferred() {
   return [...new Set(deferred.value.map((field) => IMPACTS[field.impact]?.label).filter(Boolean))].join(', ')
 }
 
+/** What this panel is configuring, as it should read in a sentence. */
+const subject = () => props.name || connection.domainName
+
+/**
+ * The edits that would put every attribute back where it was. Built from the
+ * same field definitions as the forward edits, so the old value is coerced the
+ * same way the new one was — an emptied text field goes back to null, not to
+ * the string "null".
+ */
+function inverseOf(pending) {
+  return pending.map((edit) => ({
+    path: edit.path,
+    attributes: Object.fromEntries(edit.fields.map((field) => [field.attr, coerce(field, field.from)])),
+  }))
+}
+
+/**
+ * Writes one save into the activity log, attribute by attribute, along with
+ * the edits that would undo it. A failed save is logged too: "I pressed save
+ * and it errored" is exactly the kind of thing worth being able to look up.
+ */
+function logChange({ fields, undoEdits }, { activated, error }) {
+  if (!fields.length) return
+  const changes = fields.map((field) => ({
+    label: field.label,
+    attr: field.attr,
+    path: field.__path,
+    from: field.from,
+    to: field.to,
+    note: field.impact && field.impact !== 'live' ? IMPACTS[field.impact]?.label : '',
+  }))
+  const count = fields.length
+  const title = `${count} setting${count === 1 ? '' : 's'} changed on ${subject()}`
+
+  if (error) {
+    activity.record({
+      kind: 'config',
+      title: `Failed — ${title}`,
+      summary: error.fullText || error.message,
+      changes,
+      status: 'failed',
+      undoNote:
+        'Nothing is offered to roll back, because it is not certain how much of this reached the AdminServer. ' +
+        'The pending changes bar shows what is actually waiting.',
+    })
+    return
+  }
+
+  activity.record({
+    kind: 'config',
+    title,
+    summary: activated
+      ? 'Saved and activated — the running domain is using the new values.'
+      : 'Saved as pending changes; not activated yet.',
+    changes,
+    undo: {
+      type: 'config',
+      edits: undoEdits,
+      activate: activated,
+      summary: activated
+        ? 'The previous values were written back and activated.'
+        : 'The previous values were written back into the pending changes.',
+      body: activated
+        ? 'The old values are written back through the same staged edit and activated, so the domain ends up where it started.'
+        : 'The old values are written back into the pending changes, which still have to be activated or discarded.',
+      hint: 'Write the previous values back',
+    },
+  })
+}
+
 async function save({ activate }) {
   if (!dirty.value || saving.value) return
   const pending = edits.value
@@ -226,21 +319,36 @@ async function save({ activate }) {
   const deferredCount = deferred.value.length
   const deferredKinds = describeDeferred()
 
-  if (activate) {
-    const ok = await confirm.value.ask({
-      title: `Activate ${count} change${count === 1 ? '' : 's'}?`,
-      body:
-        `${changedFields.value.map((field) => field.label).join(', ')}. ` +
-        (deferredCount
-          ? `${deferredCount} of these only take effect later (${deferredKinds}).`
-          : 'These take effect on the running domain immediately.') +
-        (connection.productionMode ? ' This domain runs in production mode.' : ''),
-      confirmLabel: 'Save and activate',
-      danger: connection.productionMode,
-      script: scriptFor(),
-    })
-    if (!ok) return
-  }
+  const ok = await confirm.value.ask(
+    activate
+      ? {
+          title: `Apply ${count} change${count === 1 ? '' : 's'} to the domain?`,
+          body:
+            (deferredCount
+              ? `${deferredCount} of these only take effect later (${deferredKinds}).`
+              : 'These take effect on the running domain immediately.') +
+            (connection.productionMode ? ' This domain runs in production mode.' : ''),
+          confirmLabel: 'Save and activate',
+          danger: connection.productionMode,
+          changes: changeList.value,
+          script: scriptFor(),
+        }
+      : {
+          title: `Save ${count} change${count === 1 ? '' : 's'} for later?`,
+          body:
+            'These are written to the AdminServer as pending changes and hold the domain lock until they are ' +
+            'activated or discarded. The running domain keeps its current values until then.',
+          confirmLabel: 'Save for later',
+          changes: changeList.value,
+          script: scriptFor(),
+        },
+  )
+  if (!ok) return
+
+  // Captured before the save: `load()` at the end refreshes the form, and the
+  // activity log has to hold what was actually changed, not what is on screen
+  // afterwards.
+  const record = { fields: changedFields.value, undoEdits: inverseOf(pending) }
 
   saving.value = true
   try {
@@ -253,6 +361,7 @@ async function save({ activate }) {
     }
   } catch (err) {
     if (!sessionGone(err)) {
+      logChange(record, { activated: false, error: err })
       ui.error(
         'Could not save the changes',
         `${err.fullText || err.message} — anything saved before the failure is still waiting in the pending changes.`,
@@ -263,9 +372,11 @@ async function save({ activate }) {
     return
   }
 
+  let activated = false
   if (activate) {
     try {
       await changes.activate()
+      activated = true
       ui.success(
         'Changes activated',
         deferredCount
@@ -276,6 +387,8 @@ async function save({ activate }) {
       ui.error('Saved, but activating failed', err.fullText || err.message)
     }
   }
+
+  logChange(record, { activated })
 
   saving.value = false
   await load()
@@ -289,8 +402,22 @@ async function activatePending() {
     danger: connection.productionMode,
   })
   if (!ok) return
+  // Read before activating: activating empties the pending set, and the whole
+  // point of the entry is to say what was in it.
+  const applied = changes.pending.map((change) => ({ label: change.text, from: 'pending', to: change.detail || 'applied' }))
   try {
     await changes.activate()
+    activity.record({
+      kind: 'lock',
+      title: `Pending changes activated on ${subject()}`,
+      summary:
+        'Everything that was waiting is now live, including changes made on another page or by another tool. ' +
+        'Only the edits this console made are listed here.',
+      changes: applied,
+      undoNote:
+        'Activating is not undone as one operation. Roll back the individual changes above, or edit the ' +
+        'settings back by hand.',
+    })
     ui.success('Changes activated', 'The running domain is using the new values.')
   } catch (err) {
     ui.error('Could not activate the changes', err.fullText || err.message)
@@ -309,8 +436,18 @@ async function discardPending() {
     danger: hadChanges,
   })
   if (!ok) return
+  const discarded = changes.pending.map((change) => ({ label: change.text, from: change.detail || 'pending', to: '(discarded)' }))
   try {
     await changes.discard()
+    if (hadChanges) {
+      activity.record({
+        kind: 'lock',
+        title: `Pending changes discarded on ${subject()}`,
+        summary: 'Nothing reached the running domain, which keeps the values it was already using.',
+        changes: discarded,
+        undoNote: 'Discarded edits are gone from the AdminServer. Make them again if they were wanted.',
+      })
+    }
     ui.info(hadChanges ? 'Pending changes discarded' : 'Lock released')
   } catch (err) {
     ui.error('Could not discard the changes', err.fullText || err.message)
