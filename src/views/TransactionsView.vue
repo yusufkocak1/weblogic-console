@@ -7,6 +7,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
 import StatCard from '@/components/StatCard.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
+import { t } from '@/i18n'
 
 /**
  * JTA and work managers — the two runtimes that sit between "the thread pool
@@ -86,145 +87,198 @@ const rollbackRate = computed(() => {
   return total ? (totals.value.rolledBack / total) * 100 : 0
 })
 
-const COLUMNS = [
-  { key: 'name', label: 'Server', hint: 'Each server keeps its own transaction totals, counted since it last started.' },
+const COLUMNS = computed(() => [
+  {
+    key: 'name',
+    label: t('Server'),
+    hint: t('Each server keeps its own transaction totals, counted since it last started.'),
+  },
   {
     key: 'active',
-    label: 'Active',
+    label: t('Active'),
     align: 'right',
-    hint: 'Transactions in flight right now. A number that grows and never falls means transactions are being started and not finished.',
+    hint: t(
+      'Transactions in flight right now. A number that grows and never falls means transactions are being started and not finished.',
+    ),
   },
   {
     key: 'committed',
-    label: 'Committed',
+    label: t('Committed'),
     align: 'right',
-    hint: 'Transactions that completed successfully since the server started. Only ever grows; the rate is what matters.',
+    hint: t(
+      'Transactions that completed successfully since the server started. Only ever grows; the rate is what matters.',
+    ),
   },
   {
     key: 'rolledBack',
-    label: 'Rolled back',
+    label: t('Rolled back'),
     align: 'right',
-    hint: 'Transactions that were undone, with the share of all transactions underneath. A few percent is normal on most systems; a jump is not.',
+    hint: t(
+      'Transactions that were undone, with the share of all transactions underneath. A few percent is normal on most systems; a jump is not.',
+    ),
   },
   {
     key: 'timeouts',
-    label: 'Timeouts',
+    label: t('Timeouts'),
     align: 'right',
-    hint: 'Rollbacks caused by the transaction taking longer than the JTA timeout. These point at a slow database or a remote call without a limit.',
+    hint: t(
+      'Rollbacks caused by the transaction taking longer than the JTA timeout. These point at a slow database or a remote call without a limit.',
+    ),
   },
   {
     key: 'resourceRollbacks',
-    label: 'Resource',
+    label: t('Resource'),
     align: 'right',
-    hint: 'Rollbacks a resource asked for — usually the database refusing to commit. Read the server log for the SQL error behind them.',
+    hint: t(
+      'Rollbacks a resource asked for — usually the database refusing to commit. Read the server log for the SQL error behind them.',
+    ),
   },
   {
     key: 'appRollbacks',
-    label: 'Application',
+    label: t('Application'),
     align: 'right',
-    hint: 'Rollbacks the application asked for itself, by calling setRollbackOnly or throwing out of a transactional method. Normal in small numbers.',
+    hint: t(
+      'Rollbacks the application asked for itself, by calling setRollbackOnly or throwing out of a transactional method. Normal in small numbers.',
+    ),
   },
   {
     key: 'heuristics',
-    label: 'Heuristic',
+    label: t('Heuristic'),
     align: 'right',
-    hint: 'Participants that decided for themselves rather than following the coordinator, so two systems may now disagree. Anything above zero needs investigating by hand.',
+    hint: t(
+      'Participants that decided for themselves rather than following the coordinator, so two systems may now disagree. Anything above zero needs investigating by hand.',
+    ),
   },
   {
     key: 'averageSeconds',
-    label: 'Avg time',
+    label: t('Avg time'),
     align: 'right',
-    hint: 'Average seconds a transaction stayed active, over every transaction since start-up. Compare it between servers rather than against an absolute figure.',
+    hint: t(
+      'Average seconds a transaction stayed active, over every transaction since start-up. Compare it between servers rather than against an absolute figure.',
+    ),
   },
-]
+])
 
-const WM_COLUMNS = [
+const WM_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'Work manager',
-    hint: 'A named queue of work with its own rules. Applications get their own; the WebLogic internal ones handle housekeeping.',
+    label: t('Work manager'),
+    hint: t(
+      'A named queue of work with its own rules. Applications get their own; the WebLogic internal ones handle housekeeping.',
+    ),
   },
-  { key: 'server', label: 'Server', hint: 'The server this work manager belongs to.' },
+  { key: 'server', label: t('Server'), hint: t('The server this work manager belongs to.') },
   {
     key: 'pending',
-    label: 'Pending',
+    label: t('Pending'),
     align: 'right',
-    hint: 'Requests waiting for a thread in this work manager. This is where a saturated thread pool shows which application is causing it.',
+    hint: t(
+      'Requests waiting for a thread in this work manager. This is where a saturated thread pool shows which application is causing it.',
+    ),
   },
   {
     key: 'completed',
-    label: 'Completed',
+    label: t('Completed'),
     align: 'right',
-    hint: 'Requests this work manager has finished since the server started.',
+    hint: t('Requests this work manager has finished since the server started.'),
   },
   {
     key: 'stuck',
-    label: 'Stuck',
+    label: t('Stuck'),
     align: 'right',
-    hint: 'Threads in this work manager busy longer than the stuck-thread timeout. Narrows a domain-wide stuck count down to one application.',
+    hint: t(
+      'Threads in this work manager busy longer than the stuck-thread timeout. Narrows a domain-wide stuck count down to one application.',
+    ),
   },
-]
+])
 </script>
 
 <template>
   <div>
     <PageHeader
-      title="Transactions"
-      subtitle="JTA totals and work manager queues per server"
+      :title="$t('Transactions')"
+      :subtitle="$t('JTA totals and work manager queues per server')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="What the transaction manager has been doing since each server started, and how much work is queued behind each work manager. Only running servers report these numbers."
+      :help="
+        $t(
+          'What the transaction manager has been doing since each server started, and how much work is queued behind each work manager. Only running servers report these numbers.',
+        )
+      "
       @refresh="reload"
     />
 
-    <HelpPanel id="transactions" title="How to read a rising rollback count">
+    <HelpPanel id="transactions" :title="$t('How to read a rising rollback count')">
       <ol class="list-decimal space-y-1 pl-4">
         <li>
-          <strong>Timeouts</strong> climbing means transactions are running past the JTA timeout — nearly always a slow
-          query or a remote call with no limit of its own. Check Data Sources for waiting connections next.
+          {{
+            $t(
+              'Timeouts climbing means transactions are running past the JTA timeout — nearly always a slow query or a remote call with no limit of its own. Check Data Sources for waiting connections next.',
+            )
+          }}
         </li>
         <li>
-          <strong>Resource</strong> rollbacks are the database refusing to commit: a constraint, a deadlock or a lost
-          connection. The server log carries the actual SQL error.
+          {{
+            $t(
+              'Resource rollbacks are the database refusing to commit: a constraint, a deadlock or a lost connection. The server log carries the actual SQL error.',
+            )
+          }}
         </li>
         <li>
-          <strong>Application</strong> rollbacks are deliberate — the code asked for them. A jump usually means a
-          validation or downstream failure rather than an infrastructure problem.
+          {{
+            $t(
+              'Application rollbacks are deliberate — the code asked for them. A jump usually means a validation or downstream failure rather than an infrastructure problem.',
+            )
+          }}
         </li>
         <li>
-          <strong>Heuristic</strong> above zero means a participant decided on its own and two systems may now
-          disagree. That one is investigated by hand, not fixed from a console.
+          {{
+            $t(
+              'Heuristic above zero means a participant decided on its own and two systems may now disagree. That one is investigated by hand, not fixed from a console.',
+            )
+          }}
         </li>
       </ol>
       <p>
-        Totals only ever grow. Turn auto-refresh on and watch how fast they move — the rate tells you far more than
-        the number.
+        {{
+          $t(
+            'Totals only ever grow. Turn auto-refresh on and watch how fast they move — the rate tells you far more than the number.',
+          )
+        }}
       </p>
     </HelpPanel>
 
     <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard
-        label="Active now"
+        :label="$t('Active now')"
         :value="num(totals.active)"
-        info="Transactions in flight across every running server at this moment."
+        :info="$t('Transactions in flight across every running server at this moment.')"
       />
       <StatCard
-        label="Committed"
+        :label="$t('Committed')"
         :value="num(totals.committed)"
-        info="Transactions that completed successfully since each server started."
+        :info="$t('Transactions that completed successfully since each server started.')"
       />
       <StatCard
-        label="Rollback rate"
+        :label="$t('Rollback rate')"
         :value="percent(rollbackRate, 1)"
         :tone="rollbackRate > 5 ? 'warn' : 'good'"
-        :hint="`${num(totals.rolledBack)} rolled back`"
-        info="Rolled back as a share of all transactions since start-up. A steady low percentage is normal; a rise is the signal worth acting on."
+        :hint="$t('{count} rolled back', { count: num(totals.rolledBack) })"
+        :info="
+          $t(
+            'Rolled back as a share of all transactions since start-up. A steady low percentage is normal; a rise is the signal worth acting on.',
+          )
+        "
       />
       <StatCard
-        label="Heuristic outcomes"
+        :label="$t('Heuristic outcomes')"
         :value="num(totals.heuristics)"
         :tone="totals.heuristics > 0 ? 'bad' : 'good'"
-        info="Participants that committed or rolled back against the coordinator's decision, leaving two systems possibly out of step. Anything above zero deserves a manual check."
+        :info="
+          $t(
+            'Participants that committed or rolled back against the coordinator\'s decision, leaving two systems possibly out of step. Anything above zero deserves a manual check.',
+          )
+        "
       />
     </div>
 
@@ -235,9 +289,9 @@ const WM_COLUMNS = [
       export-name="transactions"
       :loading="loading"
       :error="error && !data ? error : null"
-      empty-text="No server is running, so there are no transaction runtimes to read."
-      search-placeholder="Filter servers…"
-      search-hint="Matches the server name of the rows already loaded."
+      :empty-text="$t('No server is running, so there are no transaction runtimes to read.')"
+      :search-placeholder="$t('Filter servers…')"
+      :search-hint="$t('Matches the server name of the rows already loaded.')"
       @retry="reload"
     >
       <template #cell:name="{ row }">
@@ -271,15 +325,17 @@ const WM_COLUMNS = [
         </span>
       </template>
       <template #cell:averageSeconds="{ row }">
-        <span class="tabular-nums">{{ row.averageSeconds ? row.averageSeconds.toFixed(2) + 's' : '—' }}</span>
+        <span class="tabular-nums">
+          {{ row.averageSeconds ? $t('{count}s', { count: row.averageSeconds.toFixed(2) }) : '—' }}
+        </span>
       </template>
     </DataTable>
 
     <template v-if="workManagers.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Work managers
+        {{ $t('Work managers') }}
         <span class="ml-1 font-normal normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
-          — which queue the pending requests are actually sitting in
+          {{ $t('— which queue the pending requests are actually sitting in') }}
         </span>
       </h2>
       <DataTable
@@ -289,8 +345,8 @@ const WM_COLUMNS = [
         state-key="wm"
         export-name="work-managers"
         dense
-        search-placeholder="Filter work managers…"
-        search-hint="Matches the work manager name and the server it belongs to."
+        :search-placeholder="$t('Filter work managers…')"
+        :search-hint="$t('Matches the work manager name and the server it belongs to.')"
       >
         <template #cell:pending="{ row }">
           <span :class="['tabular-nums', row.pending > 0 && 'font-semibold text-amber-600 dark:text-amber-400']">

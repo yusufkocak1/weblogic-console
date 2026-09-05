@@ -264,9 +264,13 @@ export async function deploymentStates(apps, options) {
   return states
 }
 
-/** action is 'start' or 'stop'; targets restricts the operation to given servers. */
+/**
+ * action is 'start' or 'stop'; targets restricts the operation to given servers.
+ * The overload that takes targets also declares deploymentOptions, and the REST
+ * layer matches an action by its full parameter set, so both have to be sent.
+ */
 export function deploymentAction(app, action, targets, options) {
-  const body = targets?.length ? { targets } : {}
+  const body = targets?.length ? { targets, deploymentOptions: {} } : {}
   return post(
     `/domainRuntime/deploymentManager/appDeploymentRuntimes/${encodeURIComponent(app)}/${action}`,
     body,
@@ -726,13 +730,29 @@ function normalisePrincipals(result) {
  * Everything the Compare page reads from one domain, in a single request.
  * Attributes are named explicitly so the two sides are always compared on the
  * same set, whatever else a release happens to expose.
+ *
+ * The list is long on purpose. A domain that "works in test" usually differs in
+ * exactly one of these, and an attribute left out of this request is an
+ * attribute the page can never report — so the sizing, timeout and start-up
+ * settings that actually drift are all here, including the child MBeans that
+ * hold them: `serverStart` for the JVM command line where heap size lives, SSL
+ * for the second listen port, `log` for rotation.
  */
 export function configSnapshot(options) {
   return search(
     'domainConfig',
     {
       links: [],
-      fields: ['name', 'productionModeEnabled', 'configurationVersion', 'administrationPort', 'adminServerName'],
+      fields: [
+        'name',
+        'productionModeEnabled',
+        'configurationVersion',
+        'administrationPort',
+        'administrationPortEnabled',
+        'adminServerName',
+        'configurationAuditType',
+        'consoleEnabled',
+      ],
       children: {
         servers: {
           links: [],
@@ -741,21 +761,50 @@ export function configSnapshot(options) {
             'listenAddress',
             'listenPort',
             'listenPortEnabled',
+            'sslListenPort',
             'cluster',
             'machine',
+            'startupMode',
             'autoRestart',
             'restartMax',
+            'restartIntervalSeconds',
+            'gracefulShutdownTimeout',
+            'ignoreSessionsDuringShutdown',
             'stuckThreadMaxTime',
+            'stuckThreadTimerInterval',
             'maxMessageSize',
+            'acceptBacklog',
+            'tunnelingEnabled',
           ],
+          children: {
+            // Where heap size actually lives: Node Manager passes these to java.
+            serverStart: { links: [], fields: ['arguments', 'javaHome', 'classPath'] },
+            SSL: { links: [], fields: ['enabled', 'listenPort', 'hostnameVerificationIgnored'] },
+            log: {
+              links: [],
+              fields: ['fileName', 'rotationType', 'fileMinSize', 'fileCount', 'numberOfFilesLimited', 'loggerSeverity'],
+            },
+          },
         },
         clusters: {
           links: [],
-          fields: ['name', 'clusterMessagingMode', 'clusterAddress', 'servers', 'multicastAddress', 'multicastPort'],
+          fields: [
+            'name',
+            'clusterMessagingMode',
+            'clusterAddress',
+            'servers',
+            'multicastAddress',
+            'multicastPort',
+            'numberOfServersInClusterAddress',
+            'defaultLoadAlgorithm',
+            'frontendHost',
+            'frontendHTTPPort',
+            'frontendHTTPSPort',
+          ],
         },
         appDeployments: {
           links: [],
-          fields: ['name', 'sourcePath', 'targets', 'stagingMode', 'moduleType', 'deploymentOrder'],
+          fields: ['name', 'sourcePath', 'planPath', 'targets', 'stagingMode', 'moduleType', 'deploymentOrder', 'securityDDModel'],
         },
         libraries: { links: [], fields: ['name', 'sourcePath', 'targets'] },
         machines: { links: [], fields: ['name'] },
@@ -771,10 +820,60 @@ export function configSnapshot(options) {
                 JDBCDataSourceParams: { links: [], fields: ['JNDINames', 'globalTransactionsProtocol'] },
                 JDBCConnectionPoolParams: {
                   links: [],
-                  fields: ['initialCapacity', 'maxCapacity', 'minCapacity', 'testTableName', 'testConnectionsOnReserve'],
+                  fields: [
+                    'initialCapacity',
+                    'maxCapacity',
+                    'minCapacity',
+                    'capacityIncrement',
+                    'shrinkFrequencySeconds',
+                    'connectionReserveTimeoutSeconds',
+                    'inactiveConnectionTimeoutSeconds',
+                    'testTableName',
+                    'testConnectionsOnReserve',
+                    'testFrequencySeconds',
+                    'secondsToTrustAnIdlePoolConnection',
+                    'connectionCreationRetryFrequencySeconds',
+                    'statementCacheSize',
+                    'statementCacheType',
+                  ],
                 },
               },
             },
+          },
+        },
+      },
+    },
+    options,
+  )
+}
+
+/**
+ * The domain-wide amounts: JTA limits and the work manager constraints that cap
+ * how many threads an application may take.
+ *
+ * Read separately from the snapshot above, and allowed to fail: `selfTuning` is
+ * not exposed by every release, and losing the whole comparison over a subtree
+ * one domain happens to lack would be a poor trade.
+ */
+export function tuningSnapshot(options) {
+  return search(
+    'domainConfig',
+    {
+      links: [],
+      fields: [],
+      children: {
+        JTA: {
+          links: [],
+          fields: ['timeoutSeconds', 'abandonTimeoutSeconds', 'maxTransactions', 'checkpointIntervalSeconds'],
+        },
+        selfTuning: {
+          links: [],
+          fields: [],
+          children: {
+            workManagers: { links: [], fields: ['name', 'targets'] },
+            maxThreadsConstraints: { links: [], fields: ['name', 'count', 'targets'] },
+            minThreadsConstraints: { links: [], fields: ['name', 'count', 'targets'] },
+            capacities: { links: [], fields: ['name', 'count', 'targets'] },
           },
         },
       },

@@ -30,11 +30,17 @@ const color = computed(() => {
     <div class="flex items-baseline justify-between gap-2">
       <span v-if="label" class="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
         {{ label }}
-        <InfoTip v-if="tip" :text="tip" label="What this bar measures" />
+        <InfoTip v-if="tip" :text="tip" :label="$t('What this bar measures')" />
       </span>
       <span
         class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400"
-        :title="`${Math.round(ratio * 100)}% used — amber from ${Math.round(warnAt * 100)}%, red from ${Math.round(dangerAt * 100)}%`"
+        :title="
+          $t('{used}% used — amber from {warn}%, red from {danger}%', {
+            used: Math.round(ratio * 100),
+            warn: Math.round(warnAt * 100),
+            danger: Math.round(dangerAt * 100),
+          })
+        "
       >
         {{ Math.round(ratio * 100) }}%
       </span>

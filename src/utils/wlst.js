@@ -228,7 +228,7 @@ export function curlForDeploymentAction(app, action, targets = [], context = {})
   return curlFor(
     'POST',
     `/domainRuntime/deploymentManager/appDeploymentRuntimes/${encodeURIComponent(app)}/${action}`,
-    targets.length ? { targets } : {},
+    targets.length ? { targets, deploymentOptions: {} } : {},
     context,
   )
 }

@@ -1,15 +1,21 @@
 import { defineStore } from 'pinia'
+import { t } from '@/i18n'
 
 const THEME_KEY = 'wl-console.theme'
 const REFRESH_KEY = 'wl-console.refresh'
 const HELP_KEY = 'wl-console.help'
 
+/**
+ * The label is a thunk so it follows a language change, and so the literal t()
+ * calls stay visible to scripts/i18n-check.mjs — a key reached only through
+ * `option.label` would look unused and get pruned.
+ */
 export const REFRESH_OPTIONS = [
-  { label: 'Off', value: 0 },
-  { label: '5s', value: 5000 },
-  { label: '15s', value: 15000 },
-  { label: '30s', value: 30000 },
-  { label: '60s', value: 60000 },
+  { label: () => t('Off'), value: 0 },
+  { label: () => t('5s'), value: 5000 },
+  { label: () => t('15s'), value: 15000 },
+  { label: () => t('30s'), value: 30000 },
+  { label: () => t('60s'), value: 60000 },
 ]
 
 function readTheme() {

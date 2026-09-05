@@ -1,11 +1,12 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore, REFRESH_OPTIONS } from '@/stores/ui'
 import { useHistoryStore } from '@/stores/history'
 import { useAlertsStore } from '@/stores/alerts'
 import { useActivityStore } from '@/stores/activity'
+import { LOCALES, locale, setLocale, t } from '@/i18n'
 import ConnectionSwitcher from '@/components/ConnectionSwitcher.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import AlertsMenu from '@/components/AlertsMenu.vue'
@@ -21,80 +22,81 @@ const router = useRouter()
 
 const palette = ref(null)
 
-const NAV = [
+/** Recomputed on a language change, so the sidebar and Ctrl-K follow it. */
+const NAV = computed(() => [
   {
     name: 'dashboard',
-    label: 'Dashboard',
-    hint: 'Domain overview: how many servers run, plus a card per server with heap, threads and health.',
+    label: t('Dashboard'),
+    hint: t('Domain overview: how many servers run, plus a card per server with heap, threads and health.'),
     icon: 'M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6V11h-6v9Zm0-16v5h6V4h-6Z',
   },
   {
     name: 'servers',
-    label: 'Servers',
-    hint: 'Start, suspend, resume and shut down servers, and see their listen address, heap and uptime.',
+    label: t('Servers'),
+    hint: t('Start, suspend, resume and shut down servers, and see their listen address, heap and uptime.'),
     icon: 'M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm3-6.5h.01M7 16.5h.01',
   },
   {
     name: 'clusters',
-    label: 'Clusters',
-    hint: 'Cluster membership, how many members are alive, and session replication counts.',
+    label: t('Clusters'),
+    hint: t('Cluster membership, how many members are alive, and session replication counts.'),
     icon: 'M12 3v4m0 10v4M3 12h4m10 0h4M7.5 7.5 5 5m14 14-2.5-2.5m0-9L19 5M5 19l2.5-2.5M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z',
   },
   {
     name: 'deployments',
-    label: 'Deployments',
-    hint: 'Applications and shared libraries: where they are targeted and whether they are healthy. Start and stop them here.',
+    label: t('Deployments'),
+    hint: t('Applications and shared libraries: where they are targeted and whether they are healthy. Start and stop them here.'),
     icon: 'M12 3 3 7.5v9L12 21l9-4.5v-9L12 3Zm0 0v18m9-13.5L12 12 3 7.5',
   },
   {
     name: 'data-sources',
-    label: 'Data Sources',
-    hint: 'JDBC pools with live connection counts, and a Test button that opens a real connection.',
+    label: t('Data Sources'),
+    hint: t('JDBC pools with live connection counts, and a Test button that opens a real connection.'),
     icon: 'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   },
   {
     name: 'jms',
-    label: 'JMS',
-    hint: 'Messaging runtime: JMS servers, queues and topics with current, pending and high message counts.',
+    label: t('JMS'),
+    hint: t('Messaging runtime: JMS servers, queues and topics with current, pending and high message counts.'),
     icon: 'M3 6h18v12H3V6Zm0 1.5 9 6 9-6',
   },
   {
     name: 'transactions',
-    label: 'Transactions',
-    hint: 'JTA totals and work managers: commits, rollbacks, timeouts and the queues behind them.',
+    label: t('Transactions'),
+    hint: t('JTA totals and work managers: commits, rollbacks, timeouts and the queues behind them.'),
     icon: 'M4 7h13l-3-3m3 3-3 3M20 17H7l3-3m-3 3 3 3',
   },
   {
     name: 'monitoring',
-    label: 'Monitoring',
-    hint: 'Per-server JVM heap and thread pool detail — the page to open when something feels slow.',
+    label: t('Monitoring'),
+    hint: t('Per-server JVM heap and thread pool detail — the page to open when something feels slow.'),
     icon: 'M3 3v18h18M7 15l3.5-4 3 3L20 7',
   },
   {
     name: 'logs',
-    label: 'Logs',
-    hint: 'Search server logs by severity, time window and message text, without shell access to the machine.',
+    label: t('Logs'),
+    hint: t('Search server logs by severity, time window and message text, without shell access to the machine.'),
     icon: 'M8 4h9l3 3v13H8V4Zm0 0H5v16h3M11 9h6M11 13h6M11 17h4',
   },
   {
     name: 'security',
-    label: 'Security',
-    hint: 'The security realm: which providers authenticate, and the users and groups they hold.',
+    label: t('Security'),
+    hint: t('The security realm: which providers authenticate, and the users and groups they hold.'),
     icon: 'M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3Z',
   },
   {
     name: 'compare',
-    label: 'Compare',
-    hint: 'Two open domains side by side: what test has that production does not, and where the two have drifted.',
+    label: t('Compare'),
+    hint: t('Two open domains side by side: what test has that production does not, and where the two have drifted.'),
     icon: 'M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M12 3v18',
   },
   {
     name: 'explorer',
-    label: 'REST Explorer',
-    hint: 'Call any management REST endpoint directly, for anything the other pages do not cover.',
+    label: t('REST Explorer'),
+    hint: t('Call any management REST endpoint directly, for anything the other pages do not cover.'),
     icon: 'M4 7h16M4 12h16M4 17h10M18 15l3 2-3 2',
   },
-]
+])
 
 
 async function disconnectAll() {
@@ -145,11 +147,11 @@ watch(
       <div class="border-b border-zinc-200 p-2 dark:border-zinc-800">
         <ConnectionSwitcher />
         <p v-if="ui.helpVisible" class="mt-1 flex items-center gap-1 px-2 text-[11px] text-zinc-400 dark:text-zinc-500">
-          Active domain
+          {{ $t('Active domain') }}
           <InfoTip
-            heading="Active connection"
-            text="Every page below shows data for this domain only. Click the name to switch to another open AdminServer, add one, or manage saved connections."
-            label="What the connection selector does"
+            :heading="$t('Active connection')"
+            :text="$t('Every page below shows data for this domain only. Click the name to switch to another open AdminServer, add one, or manage saved connections.')"
+            :label="$t('What the connection selector does')"
           />
         </p>
       </div>
@@ -173,28 +175,29 @@ watch(
 
       <div class="border-t border-zinc-200 p-3 dark:border-zinc-800">
         <p class="mb-2 truncate text-xs text-zinc-500 dark:text-zinc-400">
-          Signed in as <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ connection.username }}</span>
+          {{ $t('Signed in as') }}
+          <span class="font-medium text-zinc-700 dark:text-zinc-200">{{ connection.username }}</span>
           <template v-if="connection.connections.length > 1">
-            · {{ connection.connections.length }} connections open
+            · {{ $t('{count} connections open', { count: connection.connections.length }) }}
           </template>
         </p>
         <button
           class="btn btn-ghost w-full"
           :title="
             connection.connections.length > 1
-              ? 'Close every open connection and return to the sign-in screen. Saved profiles are kept.'
-              : 'Close this connection and return to the sign-in screen. The saved profile is kept, the password is forgotten.'
+              ? $t('Close every open connection and return to the sign-in screen. Saved profiles are kept.')
+              : $t('Close this connection and return to the sign-in screen. The saved profile is kept, the password is forgotten.')
           "
           @click="disconnectAll"
         >
-          {{ connection.connections.length > 1 ? 'Disconnect all' : 'Disconnect' }}
+          {{ connection.connections.length > 1 ? $t('Disconnect all') : $t('Disconnect') }}
         </button>
       </div>
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col">
       <header class="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-zinc-200 bg-white/85 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/85">
-        <button class="btn btn-ghost lg:hidden" aria-label="Toggle navigation" @click="ui.sidebarOpen = !ui.sidebarOpen">
+        <button class="btn btn-ghost lg:hidden" :aria-label="$t('Toggle navigation')" @click="ui.sidebarOpen = !ui.sidebarOpen">
           <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
@@ -207,16 +210,16 @@ watch(
         <span
           v-if="connection.productionMode"
           class="hidden rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 sm:inline dark:bg-amber-500/15 dark:text-amber-300"
-          title="This domain runs in production mode: changes here affect live traffic, and WebLogic requires confirmation for many operations."
+          :title="$t('This domain runs in production mode: changes here affect live traffic, and WebLogic requires confirmation for many operations.')"
         >
-          Production
+          {{ $t('Production') }}
         </span>
 
         <div class="ml-auto flex items-center gap-2">
           <button
             class="btn btn-ghost hidden sm:inline-flex"
-            title="Search this domain: any page, server, cluster, data source or application — Ctrl-K from anywhere"
-            aria-label="Search pages and objects"
+            :title="$t('Search this domain: any page, server, cluster, data source or application — Ctrl-K from anywhere')"
+            :aria-label="$t('Search pages and objects')"
             @click="palette?.show()"
           >
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -232,15 +235,36 @@ watch(
 
           <label
             class="hidden items-center gap-1.5 text-xs text-zinc-500 sm:flex dark:text-zinc-400"
-            title="How often pages re-fetch data from the AdminServer. Set it to Off on a busy domain and use the Refresh button instead."
+            :title="$t('How often pages re-fetch data from the AdminServer. Set it to Off on a busy domain and use the Refresh button instead.')"
           >
-            Auto-refresh
+            {{ $t('Auto-refresh') }}
             <select
               class="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
               :value="ui.refreshMs"
               @change="ui.setRefresh(Number($event.target.value))"
             >
               <option v-for="option in REFRESH_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label() }}
+              </option>
+            </select>
+          </label>
+
+          <label
+            class="hidden items-center gap-1.5 text-xs text-zinc-500 sm:flex dark:text-zinc-400"
+            :title="$t('The language this console speaks. WebLogic terms — server, cluster, deployment — are left in English whichever language you pick, because that is what the documentation, WLST and the log files call them.')"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18Z" />
+            </svg>
+            <span class="sr-only">{{ $t('Language') }}</span>
+            <select
+              class="rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+              :value="locale()"
+              :aria-label="$t('Language')"
+              @change="setLocale($event.target.value)"
+            >
+              <option v-for="option in LOCALES" :key="option.value" :value="option.value">
                 {{ option.label }}
               </option>
             </select>
@@ -248,11 +272,11 @@ watch(
 
           <button
             class="btn btn-ghost"
-            :aria-label="ui.helpVisible ? 'Hide help hints' : 'Show help hints'"
+            :aria-label="ui.helpVisible ? $t('Hide help hints') : $t('Show help hints')"
             :title="
               ui.helpVisible
-                ? 'Hide the help panels and the ⓘ hints throughout the console'
-                : 'Show help panels and ⓘ hints explaining each page, field and metric'
+                ? $t('Hide the help panels and the ⓘ hints throughout the console')
+                : $t('Show help panels and ⓘ hints explaining each page, field and metric')
             "
             :aria-pressed="ui.helpVisible"
             @click="ui.toggleHelp()"
@@ -272,7 +296,12 @@ watch(
             </svg>
           </button>
 
-          <button class="btn btn-ghost" :aria-label="`Switch to ${ui.theme === 'dark' ? 'light' : 'dark'} theme`" :title="`Switch to the ${ui.theme === 'dark' ? 'light' : 'dark'} theme`" @click="ui.toggleTheme()">
+          <button
+            class="btn btn-ghost"
+            :aria-label="ui.theme === 'dark' ? $t('Switch to the light theme') : $t('Switch to the dark theme')"
+            :title="ui.theme === 'dark' ? $t('Switch to the light theme') : $t('Switch to the dark theme')"
+            @click="ui.toggleTheme()"
+          >
             <svg v-if="ui.theme === 'dark'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <circle cx="12" cy="12" r="4" />
               <path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4" />

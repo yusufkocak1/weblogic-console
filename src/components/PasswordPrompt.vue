@@ -70,14 +70,14 @@ defineExpose({ ask })
       >
         <form class="card w-full max-w-sm p-5" @submit.prevent="submit" @keydown.esc="cancel">
           <h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-50">
-            Connect to {{ profile?.name }}
+            {{ $t('Connect to {name}', { name: profile?.name }) }}
           </h2>
           <p class="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">
             {{ profile?.username }}@{{ profile?.host }}:{{ profile?.port }}
           </p>
 
           <div class="mt-4">
-            <label class="label" for="prompt-password">Password</label>
+            <label class="label" for="prompt-password">{{ $t('Password') }}</label>
             <input
               id="prompt-password"
               ref="input"
@@ -92,9 +92,9 @@ defineExpose({ ask })
           <ErrorState v-if="error" :error="error" class="mt-3" @retry="submit" />
 
           <div class="mt-5 flex justify-end gap-2">
-            <button type="button" class="btn btn-ghost" :disabled="busy" @click="cancel">Cancel</button>
+            <button type="button" class="btn btn-ghost" :disabled="busy" @click="cancel">{{ $t('Cancel') }}</button>
             <button type="submit" class="btn btn-primary" :disabled="busy || !password">
-              {{ busy ? 'Connecting…' : 'Connect' }}
+              {{ busy ? $t('Connecting…') : $t('Connect') }}
             </button>
           </div>
         </form>

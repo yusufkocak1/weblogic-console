@@ -9,6 +9,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
+import { t } from '@/i18n'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
@@ -62,9 +63,9 @@ async function activate(row) {
   busyId.value = row.key
   try {
     await connection.activate(row.live.id)
-    ui.success('Switched', `Now working on ${row.name}.`)
+    ui.success(t('Switched'), t('Now working on {name}.', { name: row.name }))
   } catch (err) {
-    ui.error('Could not switch connection', err.fullText || err.message)
+    ui.error(t('Could not switch connection'), err.fullText || err.message)
   } finally {
     busyId.value = null
   }
@@ -81,9 +82,9 @@ async function connect(row) {
 
 async function close(row) {
   const ok = await confirm.value.ask({
-    title: `Close ${row.name}?`,
-    body: 'The connection is dropped and its password is forgotten. The saved profile stays.',
-    confirmLabel: 'Close connection',
+    title: t('Close {name}?', { name: row.name }),
+    body: t('The connection is dropped and its password is forgotten. The saved profile stays.'),
+    confirmLabel: t('Close connection'),
     danger: true,
   })
   if (!ok) return
@@ -92,7 +93,7 @@ async function close(row) {
     await connection.close(row.live.id)
     if (wasLast) router.push({ name: 'login' })
   } catch (err) {
-    ui.error('Could not close connection', err.fullText || err.message)
+    ui.error(t('Could not close connection'), err.fullText || err.message)
   }
 }
 
@@ -108,24 +109,26 @@ async function commitRename(row) {
   try {
     await connection.renameProfile(row.profile.id, name)
   } catch (err) {
-    ui.error('Could not rename', err.fullText || err.message)
+    ui.error(t('Could not rename'), err.fullText || err.message)
   }
 }
 
 async function remove(row) {
   const ok = await confirm.value.ask({
-    title: `Forget ${row.name}?`,
+    title: t('Forget {name}?', { name: row.name }),
     body: row.live
-      ? 'The connection is left open, but the saved profile is removed — you will have to enter the host and port again next time.'
-      : 'The saved profile is removed. Nothing on the server is affected.',
-    confirmLabel: 'Forget profile',
+      ? t(
+          'The connection is left open, but the saved profile is removed — you will have to enter the host and port again next time.',
+        )
+      : t('The saved profile is removed. Nothing on the server is affected.'),
+    confirmLabel: t('Forget profile'),
     danger: true,
   })
   if (!ok) return
   try {
     await connection.deleteProfile(row.profile.id)
   } catch (err) {
-    ui.error('Could not remove the profile', err.fullText || err.message)
+    ui.error(t('Could not remove the profile'), err.fullText || err.message)
   }
 }
 </script>
@@ -133,43 +136,56 @@ async function remove(row) {
 <template>
   <div>
     <PageHeader
-      title="Connections"
-      subtitle="Saved domains and the ones currently open"
-      help="Every AdminServer you have saved or opened. Several can be connected at once; the one marked Active is the domain every other page is showing."
+      :title="$t('Connections')"
+      :subtitle="$t('Saved domains and the ones currently open')"
+      :help="
+        $t(
+          'Every AdminServer you have saved or opened. Several can be connected at once; the one marked Active is the domain every other page is showing.',
+        )
+      "
     >
       <template #actions>
         <button
           class="btn btn-primary"
-          title="Open the connect form to add another AdminServer, keeping the ones already open"
+          :title="$t('Open the connect form to add another AdminServer, keeping the ones already open')"
           @click="router.push({ name: 'login', query: { add: '1' } })"
         >
-          Add connection
+          {{ $t('Add connection') }}
         </button>
       </template>
     </PageHeader>
 
-    <HelpPanel id="connections" title="What the buttons on each row do">
+    <HelpPanel id="connections" :title="$t('What the buttons on each row do')">
       <ul class="list-disc space-y-1 pl-4">
         <li>
-          <strong>Connect</strong> opens a saved profile. It asks for the password, because passwords are never
-          stored.
+          {{ $t('Connect opens a saved profile. It asks for the password, because passwords are never stored.') }}
         </li>
         <li>
-          <strong>Switch to</strong> makes an already-open connection the active one - every page then shows that
-          domain. The connections you switch away from stay open.
+          {{
+            $t(
+              'Switch to makes an already-open connection the active one — every page then shows that domain. The connections you switch away from stay open.',
+            )
+          }}
         </li>
         <li>
-          <strong>Close</strong> drops the live connection and forgets its password. The saved profile stays, so you
-          can connect again later.
+          {{
+            $t(
+              'Close drops the live connection and forgets its password. The saved profile stays, so you can connect again later.',
+            )
+          }}
         </li>
-        <li><strong>Forget</strong> deletes the saved profile from this machine. Nothing on the server changes.</li>
-        <li><strong>rename</strong> next to the name gives a connection a label of your own, such as "Prod - Ankara".</li>
+        <li>{{ $t('Forget deletes the saved profile from this machine. Nothing on the server changes.') }}</li>
+        <li>
+          {{ $t('rename next to the name gives a connection a label of your own, such as Prod · Ankara.') }}
+        </li>
       </ul>
-      <p>The dot on the left is green for active, grey for open but not active, and hollow for not connected.</p>
+      <p>
+        {{ $t('The dot on the left is green for active, grey for open but not active, and hollow for not connected.') }}
+      </p>
     </HelpPanel>
 
     <div v-if="!rows.length" class="card p-10 text-center text-sm text-zinc-400">
-      No saved connections yet.
+      {{ $t('No saved connections yet.') }}
     </div>
 
     <ul v-else class="space-y-2">
@@ -188,7 +204,7 @@ async function remove(row) {
                 ? 'bg-zinc-400 dark:bg-zinc-500'
                 : 'border border-zinc-300 dark:border-zinc-600'
           "
-          :title="row.active ? 'Active' : row.live ? 'Connected' : 'Not connected'"
+          :title="row.active ? $t('Active') : row.live ? $t('Connected') : $t('Not connected')"
         />
 
         <div class="min-w-0 flex-1">
@@ -207,16 +223,16 @@ async function remove(row) {
               v-if="row.active"
               class="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
             >
-              Active
+              {{ $t('Active') }}
             </span>
-            <span v-if="!row.profile" class="text-xs text-zinc-400 dark:text-zinc-500">not saved</span>
+            <span v-if="!row.profile" class="text-xs text-zinc-400 dark:text-zinc-500">{{ $t('not saved') }}</span>
             <button
               v-if="row.profile"
               class="text-xs text-zinc-400 underline-offset-2 hover:text-zinc-700 hover:underline dark:hover:text-zinc-200"
-              title="Give this connection a name of your own, such as Prod · Ankara"
+              :title="$t('Give this connection a name of your own, such as Prod · Ankara')"
               @click="startRename(row)"
             >
-              rename
+              {{ $t('rename') }}
             </button>
           </div>
           <p class="truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
@@ -225,51 +241,54 @@ async function remove(row) {
         </div>
 
         <p class="hidden text-xs text-zinc-400 sm:block dark:text-zinc-500">
-          {{ row.live ? 'Connected' : `Last used ${datetime(row.lastUsedAt)}` }}
+          {{ row.live ? $t('Connected') : $t('Last used {when}', { when: datetime(row.lastUsedAt) }) }}
         </p>
 
         <div class="flex gap-1.5">
           <button
             v-if="row.live && !row.active"
             class="btn btn-primary px-2 py-1 text-xs"
-            title="Make this the active domain — every page switches to it. Other connections stay open."
+            :title="$t('Make this the active domain — every page switches to it. Other connections stay open.')"
             :disabled="busyId === row.key"
             @click="activate(row)"
           >
-            Switch to
+            {{ $t('Switch to') }}
           </button>
           <button
             v-else-if="!row.live"
             class="btn btn-ghost px-2 py-1 text-xs"
-            title="Open this saved profile — you will be asked for the password"
+            :title="$t('Open this saved profile — you will be asked for the password')"
             :disabled="busyId === row.key"
             @click="connect(row)"
           >
-            Connect
+            {{ $t('Connect') }}
           </button>
           <button
             v-if="row.live"
             class="btn btn-ghost px-2 py-1 text-xs"
-            title="Drop this connection and forget its password. The saved profile is kept."
+            :title="$t('Drop this connection and forget its password. The saved profile is kept.')"
             @click="close(row)"
           >
-            Close
+            {{ $t('Close') }}
           </button>
           <button
             v-if="row.profile"
             class="btn btn-danger px-2 py-1 text-xs"
-            title="Delete this saved profile from this machine. Nothing on the server is affected."
+            :title="$t('Delete this saved profile from this machine. Nothing on the server is affected.')"
             @click="remove(row)"
           >
-            Forget
+            {{ $t('Forget') }}
           </button>
         </div>
       </li>
     </ul>
 
     <p class="mt-4 text-xs text-zinc-400 dark:text-zinc-500">
-      Profiles are stored on this machine without passwords, so each one needs its password entered once per console
-      restart. Connections stay open until you close them or the console process stops.
+      {{
+        $t(
+          'Profiles are stored on this machine without passwords, so each one needs its password entered once per console restart. Connections stay open until you close them or the console process stops.',
+        )
+      }}
     </p>
 
     <PasswordPrompt ref="prompt" />

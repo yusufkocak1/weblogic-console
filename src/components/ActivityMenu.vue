@@ -4,6 +4,7 @@ import { useActivityStore, RETENTION_OPTIONS } from '@/stores/activity'
 import { useUiStore } from '@/stores/ui'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 /**
  * The counter-clockwise arrow in the top bar: what this console has changed
@@ -21,12 +22,13 @@ const open = ref(false)
 const showSettings = ref(false)
 const confirm = ref(null)
 
-const KIND_LABEL = {
-  config: 'Configuration',
-  lifecycle: 'Server',
-  deployment: 'Deployment',
-  lock: 'Change lock',
-}
+/** Built per read so the labels follow a language change. */
+const kindLabels = () => ({
+  config: t('Configuration'),
+  lifecycle: t('Server'),
+  deployment: t('Deployment'),
+  lock: t('Change lock'),
+})
 
 const KIND_DOT = {
   config: 'bg-indigo-500',
@@ -35,10 +37,10 @@ const KIND_DOT = {
   lock: 'bg-zinc-400',
 }
 
-const STATUS_NOTE = {
-  failed: { label: 'Failed', class: 'text-red-500 dark:text-red-400' },
-  'rolled-back': { label: 'Rolled back', class: 'text-amber-600 dark:text-amber-400' },
-}
+const statusNotes = () => ({
+  failed: { label: t('Failed'), class: 'text-red-500 dark:text-red-400' },
+  'rolled-back': { label: t('Rolled back'), class: 'text-amber-600 dark:text-amber-400' },
+})
 
 const badge = computed(() => (activity.count > 99 ? '99+' : String(activity.count)))
 
@@ -79,14 +81,16 @@ const time = (at) => new Date(at).toLocaleTimeString(undefined, { hour12: false 
 /** How long an entry has left before the retention window drops it. */
 function expiresIn(entry) {
   const left = entry.at + activity.retentionMs - now.value
-  if (left <= 0) return 'expiring'
+  if (left <= 0) return t('expiring')
   const minutes = Math.round(left / 60000)
-  return minutes >= 60 ? `${Math.round(minutes / 60)}h left` : `${Math.max(1, minutes)}m left`
+  return minutes >= 60
+    ? t('{hours}h left', { hours: Math.round(minutes / 60) })
+    : t('{minutes}m left', { minutes: Math.max(1, minutes) })
 }
 
 const display = (value) => {
-  if (value === null || value === undefined || value === '') return '(empty)'
-  if (typeof value === 'boolean') return value ? 'On' : 'Off'
+  if (value === null || value === undefined || value === '') return t('(empty)')
+  if (typeof value === 'boolean') return value ? t('On') : t('Off')
   return String(value)
 }
 
@@ -97,12 +101,14 @@ const display = (value) => {
  */
 async function rollback(entry) {
   const ok = await confirm.value.ask({
-    title: 'Roll this change back?',
+    title: t('Roll this change back?'),
     body:
       `${entry.title}. ` +
       (entry.undo?.body ||
-        'The console makes the opposite request against the domain. It is a new change, not an erasure of the old one.'),
-    confirmLabel: 'Roll back',
+        t(
+          'The console makes the opposite request against the domain. It is a new change, not an erasure of the old one.',
+        )),
+    confirmLabel: t('Roll back'),
     danger: true,
     changes: entry.changes?.length
       ? entry.changes.map((change) => ({
@@ -117,17 +123,17 @@ async function rollback(entry) {
 
   try {
     await activity.rollback(entry.id)
-    ui.success('Rolled back', entry.title)
+    ui.success(t('Rolled back'), entry.title)
   } catch (err) {
-    ui.error('Could not roll that back', err.fullText || err.message)
+    ui.error(t('Could not roll that back'), err.fullText || err.message)
   }
 }
 
 async function clearAll() {
   const ok = await confirm.value.ask({
-    title: 'Clear the activity log?',
-    body: 'The list is emptied and nothing in it can be rolled back afterwards. The domain itself is not touched.',
-    confirmLabel: 'Clear',
+    title: t('Clear the activity log?'),
+    body: t('The list is emptied and nothing in it can be rolled back afterwards. The domain itself is not touched.'),
+    confirmLabel: t('Clear'),
     danger: true,
   })
   if (ok) activity.clear()
@@ -138,9 +144,15 @@ async function clearAll() {
   <div class="relative">
     <button
       class="btn btn-ghost relative"
-      :aria-label="activity.count ? `Activity: ${activity.count} recent changes` : 'Activity'"
+      :aria-label="
+        activity.count ? $t('Activity: {count} recent changes', { count: activity.count }) : $t('Activity')
+      "
       :aria-expanded="open"
-      title="What you have changed on this domain recently — settings, server actions, deployments — each with the values before and after, and a Roll back button while the entry lasts."
+      :title="
+        $t(
+          'What you have changed on this domain recently — settings, server actions, deployments — each with the values before and after, and a Roll back button while the entry lasts.',
+        )
+      "
       @click="toggle"
     >
       <svg
@@ -172,35 +184,39 @@ async function clearAll() {
     >
       <div class="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <p class="flex items-center gap-1 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          Activity
+          {{ $t('Activity') }}
           <InfoTip
-            heading="Recent changes"
-            text="Every change this console made to the domain — a setting written, a server started or stopped, an application deployed — with the value it held before and the value it holds now. Kept for a short window so a mistake can be undone; it is not an audit trail, and it does not record what other tools or other operators did."
+            :heading="$t('Recent changes')"
+            :text="
+              $t(
+                'Every change this console made to the domain — a setting written, a server started or stopped, an application deployed — with the value it held before and the value it holds now. Kept for a short window so a mistake can be undone; it is not an audit trail, and it does not record what other tools or other operators did.',
+              )
+            "
           />
         </p>
         <button
           class="ml-auto text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-          title="How long entries are kept before they expire"
+          :title="$t('How long entries are kept before they expire')"
           @click="showSettings = !showSettings"
         >
-          {{ showSettings ? 'Hide settings' : activity.retentionLabel }}
+          {{ showSettings ? $t('Hide settings') : activity.retentionLabel }}
         </button>
         <button
           v-if="activity.entries.length"
           class="text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-          title="Empty the list. Nothing in it can be rolled back afterwards."
+          :title="$t('Empty the list. Nothing in it can be rolled back afterwards.')"
           @click="clearAll"
         >
-          Clear
+          {{ $t('Clear') }}
         </button>
       </div>
 
       <div v-if="showSettings" class="space-y-2 border-b border-zinc-200 px-3 py-3 text-sm dark:border-zinc-800">
         <label class="flex items-center justify-between gap-2">
           <span class="text-zinc-700 dark:text-zinc-200">
-            Keep changes for
+            {{ $t('Keep changes for') }}
             <span class="block text-xs text-zinc-400 dark:text-zinc-500">
-              An entry disappears when its window runs out, and its rollback goes with it.
+              {{ $t('An entry disappears when its window runs out, and its rollback goes with it.') }}
             </span>
           </span>
           <select
@@ -209,7 +225,7 @@ async function clearAll() {
             @change="activity.setRetention(Number($event.target.value))"
           >
             <option v-for="option in RETENTION_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }}
+              {{ option.label() }}
             </option>
           </select>
         </label>
@@ -251,11 +267,11 @@ async function clearAll() {
 
               <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
                 <span>{{ time(entry.at) }}</span>
-                <span>· {{ KIND_LABEL[entry.kind] || entry.kind }}</span>
+                <span>· {{ kindLabels()[entry.kind] || entry.kind }}</span>
                 <span v-if="entry.user">· {{ entry.user }}</span>
                 <span>· {{ expiresIn(entry) }}</span>
-                <span v-if="STATUS_NOTE[entry.status]" :class="STATUS_NOTE[entry.status].class">
-                  · {{ STATUS_NOTE[entry.status].label }}
+                <span v-if="statusNotes()[entry.status]" :class="statusNotes()[entry.status].class">
+                  · {{ statusNotes()[entry.status].label }}
                 </span>
               </div>
 
@@ -268,18 +284,22 @@ async function clearAll() {
               v-if="activity.revertible(entry)"
               class="btn btn-ghost h-7 shrink-0 self-start px-2 text-xs"
               :disabled="Boolean(activity.undoing)"
-              :title="entry.undo?.hint || 'Make the opposite change on the domain'"
+              :title="entry.undo?.hint || $t('Make the opposite change on the domain')"
               @click="rollback(entry)"
             >
-              {{ activity.undoing === entry.id ? 'Rolling back…' : 'Roll back' }}
+              {{ activity.undoing === entry.id ? $t('Rolling back…') : $t('Roll back') }}
             </button>
           </div>
         </li>
       </ul>
 
       <p v-else class="flex-1 px-3 py-8 text-center text-sm leading-relaxed text-zinc-400 dark:text-zinc-500">
-        Nothing changed on this domain in the last {{ activity.retentionLabel }}. Settings you save, servers you start
-        or stop and applications you deploy appear here, with a way to undo them.
+        {{
+          $t(
+            'Nothing changed on this domain in the last {window}. Settings you save, servers you start or stop and applications you deploy appear here, with a way to undo them.',
+            { window: activity.retentionLabel },
+          )
+        }}
       </p>
     </div>
 

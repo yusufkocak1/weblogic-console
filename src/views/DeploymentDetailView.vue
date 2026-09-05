@@ -17,6 +17,7 @@ import SettingsPanel from '@/components/SettingsPanel.vue'
 import TargetPicker from '@/components/TargetPicker.vue'
 import DeployDialog from '@/components/DeployDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { t } from '@/i18n'
 
 /**
  * One application: whether it is serving, where it is serving from, and the
@@ -71,11 +72,27 @@ const health = computed(() =>
 )
 
 const facts = computed(() => [
-  { label: 'Type', value: configured.value?.moduleType || '—', hint: 'war for a web application, ear for an enterprise application, jar for an EJB module.' },
-  { label: 'Targets', value: targets.value.join(', ') || '—', hint: 'The servers and clusters this application is deployed to. Start and Stop act on all of them.' },
-  { label: 'Running on', value: instances.value.map((i) => i.server).join(', ') || 'nowhere' },
-  { label: 'Deployment order', value: configured.value?.deploymentOrder ?? '—', hint: 'Lower numbers deploy first. The setting below changes it.' },
-  { label: 'Archive', value: configured.value?.absoluteSourcePath || configured.value?.sourcePath || '—', mono: true },
+  {
+    label: t('Type'),
+    value: configured.value?.moduleType || '—',
+    hint: t('war for a web application, ear for an enterprise application, jar for an EJB module.'),
+  },
+  {
+    label: t('Targets'),
+    value: targets.value.join(', ') || '—',
+    hint: t('The servers and clusters this application is deployed to. Start and Stop act on all of them.'),
+  },
+  { label: t('Running on'), value: instances.value.map((i) => i.server).join(', ') || t('nowhere') },
+  {
+    label: t('Deployment order'),
+    value: configured.value?.deploymentOrder ?? '—',
+    hint: t('Lower numbers deploy first. The setting below changes it.'),
+  },
+  {
+    label: t('Archive'),
+    value: configured.value?.absoluteSourcePath || configured.value?.sourcePath || '—',
+    mono: true,
+  },
 ])
 
 /**
@@ -85,7 +102,7 @@ const facts = computed(() => [
 function logDeployment(action, error) {
   const app = name.value
   const on = [...targets.value]
-  const label = action === 'start' ? 'Start' : 'Stop'
+  const label = action === 'start' ? t('Start') : t('Stop')
   const opposite = action === 'start' ? 'stop' : 'start'
   const changes = [
     {
@@ -93,54 +110,59 @@ function logDeployment(action, error) {
       attr: 'state',
       from: action === 'start' ? 'STOPPED' : 'ACTIVE',
       to: action === 'start' ? 'ACTIVE' : 'STOPPED',
-      note: on.length ? `on ${on.join(', ')}` : '',
+      note: on.length ? t('on {targets}', { targets: on.join(', ') }) : '',
     },
   ]
 
   if (error) {
     activity.record({
       kind: 'deployment',
-      title: `Failed — ${label} ${app}`,
+      title: t('Failed — {action} {app}', { action: label, app }),
       summary: error,
       changes,
       status: 'failed',
-      undoNote: 'Nothing to roll back: the request did not go through.',
+      undoNote: t('Nothing to roll back: the request did not go through.'),
     })
     return
   }
 
   activity.record({
     kind: 'deployment',
-    title: `${label} ${app}`,
+    title: t('{action} {app}', { action: label, app }),
     summary:
       action === 'start'
-        ? `Put back into service on ${on.join(', ') || 'its targets'}.`
-        : `No longer served on ${on.join(', ') || 'its targets'}.`,
+        ? t('Put back into service on {targets}.', { targets: on.join(', ') || t('its targets') })
+        : t('No longer served on {targets}.', { targets: on.join(', ') || t('its targets') }),
     changes,
     undo: {
       type: 'deployment',
       app,
       action: opposite,
       targets: on,
-      summary: `${opposite === 'start' ? 'Started' : 'Stopped'} again.`,
-      body: `The application is ${opposite === 'start' ? 'started' : 'stopped'} again where it was.`,
-      hint: `${opposite === 'start' ? 'Start' : 'Stop'} ${app}`,
+      summary: opposite === 'start' ? t('Started again.') : t('Stopped again.'),
+      body:
+        opposite === 'start'
+          ? t('The application is started again where it was.')
+          : t('The application is stopped again where it was.'),
+      hint: t('{action} {app}', { action: opposite === 'start' ? t('Start') : t('Stop'), app }),
     },
   })
 }
 
 async function runAction(action) {
-  const label = action === 'start' ? 'Start' : 'Stop'
+  const label = action === 'start' ? t('Start') : t('Stop')
   const ok = await confirm.value.ask({
-    title: `${label} ${name.value}?`,
+    title: t('{action} {app}?', { action: label, app: name.value }),
     body:
       action === 'start'
-        ? `The application will be served on: ${targets.value.join(', ') || 'its targets'}.`
-        : 'Clients will stop being served by this application on all its targets.',
+        ? t('The application will be served on: {targets}.', {
+            targets: targets.value.join(', ') || t('its targets'),
+          })
+        : t('Clients will stop being served by this application on all its targets.'),
     confirmLabel: label,
     danger: action === 'stop',
     script: {
-      subtitle: `${label} ${name.value}`,
+      subtitle: t('{action} {app}', { action: label, app: name.value }),
       wlst: wlstForDeploymentAction(name.value, action, targets.value, scriptContext()),
       curl: curlForDeploymentAction(name.value, action, targets.value, scriptContext()),
     },
@@ -151,11 +173,14 @@ async function runAction(action) {
   try {
     await wls.deploymentAction(name.value, action, targets.value)
     logDeployment(action)
-    ui.success(`${label} requested`, `${name.value} — state refreshes shortly.`)
+    ui.success(
+      t('{action} requested', { action: label }),
+      t('{app} — state refreshes shortly.', { app: name.value }),
+    )
     setTimeout(reload, 1500)
   } catch (err) {
     logDeployment(action, err.fullText || err.message)
-    ui.error(`${label} failed for ${name.value}`, err.fullText || err.message)
+    ui.error(t('{action} failed for {app}', { action: label, app: name.value }), err.fullText || err.message)
   } finally {
     busy.value = false
   }
@@ -164,14 +189,15 @@ async function runAction(action) {
 /** Removing the application from the domain, not just from service. */
 async function undeploy() {
   const ok = await confirm.value.ask({
-    title: `Undeploy ${name.value}?`,
-    body: `The application is removed from the domain configuration and stops being served on ${
-      targets.value.join(', ') || 'its targets'
-    }. Putting it back means deploying the archive again.`,
-    confirmLabel: 'Undeploy',
+    title: t('Undeploy {app}?', { app: name.value }),
+    body: t(
+      'The application is removed from the domain configuration and stops being served on {targets}. Putting it back means deploying the archive again.',
+      { targets: targets.value.join(', ') || t('its targets') },
+    ),
+    confirmLabel: t('Undeploy'),
     danger: true,
     script: {
-      subtitle: `Undeploy ${name.value}`,
+      subtitle: t('Undeploy {app}', { app: name.value }),
       wlst: wlstForUndeploy(name.value, targets.value, scriptContext()),
       curl: curlFor('DELETE', `/edit/appDeployments/${encodeURIComponent(name.value)}`, undefined, scriptContext()),
     },
@@ -182,38 +208,40 @@ async function undeploy() {
   try {
     await changes.refresh()
     if (changes.locked && changes.lockOwner && changes.lockOwner !== connection.username) {
-      throw new Error(`${changes.lockOwner} holds the configuration lock.`)
+      throw new Error(t('{owner} holds the configuration lock.', { owner: changes.lockOwner }))
     }
     if (!changes.locked) await config.startEdit()
     await wls.undeployApplication(name.value)
     await changes.activate()
     activity.record({
       kind: 'deployment',
-      title: `Undeployed ${name.value}`,
-      summary: `Removed from the domain configuration and from ${targets.value.join(', ') || 'its targets'}.`,
+      title: t('Undeployed {app}', { app: name.value }),
+      summary: t('Removed from the domain configuration and from {targets}.', {
+        targets: targets.value.join(', ') || t('its targets'),
+      }),
       changes: [
         {
           label: name.value,
           attr: 'appDeployments',
-          from: configured.value?.sourcePath || 'deployed',
-          to: '(removed)',
+          from: configured.value?.sourcePath || t('deployed'),
+          to: t('(removed)'),
         },
       ],
-      undoNote:
-        'An undeploy cannot be rolled back from here: the domain no longer holds the archive, so putting the ' +
-        'application back means deploying the file again.',
+      undoNote: t(
+        'An undeploy cannot be rolled back from here: the domain no longer holds the archive, so putting the application back means deploying the file again.',
+      ),
     })
-    ui.success('Undeployed', `${name.value} has been removed from the domain.`)
+    ui.success(t('Undeployed'), t('{app} has been removed from the domain.', { app: name.value }))
     router.push({ name: 'deployments' })
   } catch (err) {
     activity.record({
       kind: 'deployment',
-      title: `Failed — undeploy ${name.value}`,
+      title: t('Failed — undeploy {app}', { app: name.value }),
       summary: err.fullText || err.message,
       status: 'failed',
-      undoNote: 'The edit was discarded, so the application should still be deployed.',
+      undoNote: t('The edit was discarded, so the application should still be deployed.'),
     })
-    ui.error(`Could not undeploy ${name.value}`, err.fullText || err.message)
+    ui.error(t('Could not undeploy {app}', { app: name.value }), err.fullText || err.message)
     await changes.discard().catch(() => {})
   } finally {
     busy.value = false
@@ -225,57 +253,69 @@ async function undeploy() {
   <div>
     <PageHeader
       :title="name"
-      subtitle="Deployment state and settings"
+      :subtitle="$t('Deployment state and settings')"
       :back="{ name: 'deployments' }"
-      back-label="Deployments"
+      :back-label="$t('Deployments')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="One application: whether it is serving and where, the settings that decide how it is deployed, and the buttons to put a new build out or remove it from the domain."
+      :help="
+        $t(
+          'One application: whether it is serving and where, the settings that decide how it is deployed, and the buttons to put a new build out or remove it from the domain.',
+        )
+      "
       @refresh="reload"
     >
       <template #actions>
         <div class="flex gap-1.5">
           <button
             class="btn btn-ghost"
-            title="Put this application back into service on all of its targets"
+            :title="$t('Put this application back into service on all of its targets')"
             :disabled="busy"
             @click="runAction('start')"
           >
-            Start
+            {{ $t('Start') }}
           </button>
           <button
             class="btn btn-danger"
-            title="Take this application out of service on all of its targets — clients stop being served immediately"
+            :title="
+              $t('Take this application out of service on all of its targets — clients stop being served immediately')
+            "
             :disabled="busy"
             @click="runAction('stop')"
           >
-            Stop
+            {{ $t('Stop') }}
           </button>
           <button
             class="btn btn-ghost"
-            title="Upload a new archive over this deployment, keeping its name and targets — this is how a new build goes out"
+            :title="
+              $t(
+                'Upload a new archive over this deployment, keeping its name and targets — this is how a new build goes out',
+              )
+            "
             :disabled="busy"
             @click="deployDialog.show({ mode: 'redeploy', name, stagingMode: configured?.stagingMode, targets })"
           >
-            Redeploy
+            {{ $t('Redeploy') }}
           </button>
           <button
             class="btn btn-danger"
-            title="Remove this application from the domain configuration entirely"
+            :title="$t('Remove this application from the domain configuration entirely')"
             :disabled="busy"
             @click="undeploy"
           >
-            Undeploy
+            {{ $t('Undeploy') }}
           </button>
         </div>
       </template>
     </PageHeader>
 
     <div v-if="missing" class="card p-6 text-sm text-zinc-500 dark:text-zinc-400">
-      This domain has nothing deployed under the name <span class="font-mono">{{ name }}</span
-      >. Go back to
-      <RouterLink :to="{ name: 'deployments' }" class="text-indigo-600 dark:text-indigo-400">Deployments</RouterLink>
-      for the current list.
+      {{ $t('This domain has nothing deployed under the name {name}.', { name }) }}
+      {{ $t('Go back to') }}
+      <RouterLink :to="{ name: 'deployments' }" class="text-indigo-600 dark:text-indigo-400">
+        {{ $t('Deployments') }}
+      </RouterLink>
+      {{ $t('for the current list.') }}
     </div>
 
     <template v-else>
@@ -283,7 +323,7 @@ async function undeploy() {
         <div class="mb-3 flex flex-wrap items-center gap-2">
           <StateBadge v-if="state" :state="state" />
           <span v-else class="text-xs text-zinc-400 dark:text-zinc-500">
-            Not active anywhere — check that its target servers are running.
+            {{ $t('Not active anywhere — check that its target servers are running.') }}
           </span>
           <StateBadge v-if="health && health !== 'OK'" kind="health" :health="health" />
         </div>
@@ -296,14 +336,22 @@ async function undeploy() {
         :name="name"
         :current="targets"
         wlst-type="AppDeployment"
-        description="Where this application runs. Targeting a cluster deploys it to every member, including members added later; removing a target stops it being served there as soon as the change is activated."
+        :description="
+          $t(
+            'Where this application runs. Targeting a cluster deploys it to every member, including members added later; removing a target stops it being served there as soon as the change is activated.',
+          )
+        "
         @changed="reload"
       />
 
       <SettingsPanel
         :sections="['deployments']"
         :name="name"
-        intro="These settings describe how the application is deployed, not what is inside it: anything from the archive's own descriptors — context roots, session timeouts, EJB pool sizes — is overridden with a deployment plan, which is set below. Most of these are read when the application is next deployed, so activate the change and then redeploy it, or stop and start it, to apply it."
+        :intro="
+          $t(
+            'These settings describe how the application is deployed, not what is inside it: anything from the archive\'s own descriptors — context roots, session timeouts, EJB pool sizes — is overridden with a deployment plan, which is set below. Most of these are read when the application is next deployed, so activate the change and then redeploy it, or stop and start it, to apply it.',
+          )
+        "
       />
     </template>
 

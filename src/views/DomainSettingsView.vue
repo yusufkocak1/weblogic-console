@@ -6,6 +6,7 @@ import { useConnectionStore } from '@/stores/connection'
 import PageHeader from '@/components/PageHeader.vue'
 import FactList from '@/components/FactList.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import { t } from '@/i18n'
 
 /**
  * The domain itself: the settings that have no single server, cluster or
@@ -17,33 +18,39 @@ const connection = useConnectionStore()
 const { data, refreshing, lastUpdated, reload } = useResource(({ signal }) => wls.domainSummary({ signal }))
 
 const facts = computed(() => [
-  { label: 'Domain', value: data.value?.name || connection.domainName },
+  { label: t('Domain'), value: data.value?.name || connection.domainName },
   {
-    label: 'Mode',
-    value: data.value?.productionModeEnabled ? 'Production' : 'Development',
-    hint: 'Production mode requires the configuration lock for every change and turns off auto-deployment. Changing it needs every server in the domain restarted.',
+    label: t('Mode'),
+    value: data.value?.productionModeEnabled ? t('Production') : t('Development'),
+    hint: t(
+      'Production mode requires the configuration lock for every change and turns off auto-deployment. Changing it needs every server in the domain restarted.',
+    ),
   },
-  { label: 'AdminServer', value: data.value?.adminServerName || '—' },
+  { label: t('AdminServer'), value: data.value?.adminServerName || '—' },
   {
-    label: 'Configuration version',
+    label: t('Configuration version'),
     value: data.value?.configurationVersion || '—',
-    hint: 'The WebLogic version this domain’s configuration was written for.',
+    hint: t('The WebLogic version this domain’s configuration was written for.'),
   },
-  { label: 'Domain directory', value: data.value?.rootDirectory || '—', mono: true },
-  { label: 'Connected as', value: connection.username },
+  { label: t('Domain directory'), value: data.value?.rootDirectory || '—', mono: true },
+  { label: t('Connected as'), value: connection.username },
 ])
 </script>
 
 <template>
   <div>
     <PageHeader
-      title="Domain settings"
-      subtitle="Settings that apply to the whole domain"
+      :title="$t('Domain settings')"
+      :subtitle="$t('Settings that apply to the whole domain')"
       :back="{ name: 'dashboard' }"
-      back-label="Dashboard"
+      :back-label="$t('Dashboard')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="The domain-wide switches: the administration port, change auditing, and the combined domain log that every server broadcasts into."
+      :help="
+        $t(
+          'The domain-wide switches: the administration port, change auditing, and the combined domain log that every server broadcasts into.',
+        )
+      "
       @refresh="reload"
     />
 

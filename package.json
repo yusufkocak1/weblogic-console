@@ -14,7 +14,8 @@
     "build": "vite build",
     "start": "node server/index.mjs",
     "serve": "npm run build && npm start",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "i18n:check": "node scripts/i18n-check.mjs"
   },
   "dependencies": {
     "pinia": "^2.2.6",

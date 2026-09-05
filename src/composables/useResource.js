@@ -2,6 +2,7 @@ import { onScopeDispose, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
 import { useConnectionStore } from '@/stores/connection'
+import { t } from '@/i18n'
 
 /**
  * Loads a resource once and, when `poll` is set, keeps it fresh on the interval
@@ -47,7 +48,7 @@ export function useResource(loader, { immediate = true, poll = true, onError } =
         // The backend session expired or the process restarted. Start over.
         stop()
         connection.reset()
-        ui.error('Session ended', 'Connect to the AdminServer again.')
+        ui.error(t('Session ended'), t('Connect to the AdminServer again.'))
         router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
         return
       }

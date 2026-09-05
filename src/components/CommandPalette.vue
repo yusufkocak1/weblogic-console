@@ -5,6 +5,7 @@ import * as config from '@/api/config'
 import { items } from '@/utils/format'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore, REFRESH_OPTIONS } from '@/stores/ui'
+import { t } from '@/i18n'
 
 /**
  * Ctrl-K: one box that goes anywhere.
@@ -34,7 +35,26 @@ const objects = ref([])
 const loadedFor = ref(null)
 const loading = ref(false)
 
+/** Stable ids: they order the list and key the labels, and are never shown. */
 const GROUP_ORDER = ['Page', 'Server', 'Cluster', 'Data source', 'Application', 'Connection', 'Setting']
+
+/** Built per read, so headings and hints follow a language change. */
+const groupLabels = () => ({
+  Page: t('Page'),
+  Server: t('Server'),
+  Cluster: t('Cluster'),
+  'Data source': t('Data source'),
+  Application: t('Application'),
+  Connection: t('Connection'),
+  Setting: t('Setting'),
+})
+
+const objectHints = () => ({
+  Server: t('Open this server'),
+  Cluster: t('Open this cluster'),
+  'Data source': t('Open this data source'),
+  Application: t('Open this application'),
+})
 
 async function loadObjects() {
   if (loadedFor.value === connection.activeId || !connection.activeId) return
@@ -46,7 +66,6 @@ async function loadObjects() {
         id: `${group}:${entry.name}`,
         group,
         label: entry.name,
-        hint: `Open this ${group.toLowerCase()}`,
         to: { name: route, params: { name: entry.name } },
       }))
     objects.value = [
@@ -78,8 +97,8 @@ const commands = computed(() => {
     .map((entry) => ({
       id: `connection:${entry.id}`,
       group: 'Connection',
-      label: `Switch to ${entry.name}`,
-      hint: `${entry.host}:${entry.port} as ${entry.username}`,
+      label: t('Switch to {name}', { name: entry.name }),
+      hint: t('{host}:{port} as {user}', { host: entry.host, port: entry.port, user: entry.username }),
       run: () => connection.activate(entry.id),
     }))
 
@@ -87,41 +106,44 @@ const commands = computed(() => {
     {
       id: 'setting:theme',
       group: 'Setting',
-      label: `Switch to the ${ui.theme === 'dark' ? 'light' : 'dark'} theme`,
-      hint: 'Remembered in this browser',
+      label: ui.theme === 'dark' ? t('Switch to the light theme') : t('Switch to the dark theme'),
+      hint: t('Remembered in this browser'),
       run: () => ui.toggleTheme(),
     },
     {
       id: 'setting:help',
       group: 'Setting',
-      label: ui.helpVisible ? 'Hide help hints' : 'Show help hints',
-      hint: 'The ⓘ icons and the panel at the top of each page',
+      label: ui.helpVisible ? t('Hide help hints') : t('Show help hints'),
+      hint: t('The ⓘ icons and the panel at the top of each page'),
       run: () => ui.toggleHelp(),
     },
     ...REFRESH_OPTIONS.map((option) => ({
       id: `setting:refresh:${option.value}`,
       group: 'Setting',
-      label: `Auto-refresh: ${option.label}`,
-      hint: 'How often pages re-fetch from the AdminServer',
+      label: t('Auto-refresh: {interval}', { interval: option.label() }),
+      hint: t('How often pages re-fetch from the AdminServer'),
       run: () => ui.setRefresh(option.value),
     })),
     {
       id: 'setting:connections',
       group: 'Setting',
-      label: 'Manage connections',
-      hint: 'Rename, close and forget saved domains',
+      label: t('Manage connections'),
+      hint: t('Rename, close and forget saved domains'),
       to: { name: 'connections' },
     },
     {
       id: 'setting:domain',
       group: 'Setting',
-      label: 'Domain settings',
-      hint: 'Administration port, auditing and the domain log',
+      label: t('Domain settings'),
+      hint: t('Administration port, auditing and the domain log'),
       to: { name: 'domain-settings' },
     },
   ]
 
-  return [...pages, ...objects.value, ...connections, ...settings]
+  const hints = objectHints()
+  const named = objects.value.map((entry) => ({ ...entry, hint: hints[entry.group] }))
+
+  return [...pages, ...named, ...connections, ...settings]
 })
 
 /**
@@ -161,7 +183,8 @@ const results = computed(() => {
 /** Rows are flat for the keyboard; the heading is drawn when the group changes. */
 const headingFor = (index) => {
   const group = results.value[index]?.group
-  return index === 0 || results.value[index - 1]?.group !== group ? group : null
+  if (index !== 0 && results.value[index - 1]?.group === group) return null
+  return groupLabels()[group] || group
 }
 
 async function show() {
@@ -234,8 +257,8 @@ defineExpose({ show })
             ref="input"
             v-model="query"
             class="w-full bg-transparent py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
-            placeholder="Go to a page, a server, a data source…"
-            aria-label="Search pages and objects"
+            :placeholder="$t('Go to a page, a server, a data source…')"
+            :aria-label="$t('Search pages and objects')"
           />
           <kbd class="rounded border border-zinc-300 px-1.5 py-0.5 text-[10px] text-zinc-400 dark:border-zinc-700">esc</kbd>
         </div>
@@ -267,11 +290,11 @@ defineExpose({ show })
           </template>
         </ul>
         <p v-else class="px-3 py-8 text-center text-sm text-zinc-400">
-          {{ loading ? 'Reading the domain…' : 'Nothing matches that.' }}
+          {{ loading ? $t('Reading the domain…') : $t('Nothing matches that.') }}
         </p>
 
         <p class="border-t border-zinc-200 px-3 py-1.5 text-[11px] text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-          ↑↓ to move · Enter to open · Ctrl-K from anywhere
+          {{ $t('↑↓ to move · Enter to open · Ctrl-K from anywhere') }}
         </p>
       </div>
     </div>

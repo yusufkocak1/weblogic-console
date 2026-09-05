@@ -10,6 +10,7 @@ import { curlFor, wlstForTargets } from '@/utils/wlst'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import SnippetDialog from '@/components/SnippetDialog.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 /**
  * Where a resource is deployed.
@@ -63,7 +64,7 @@ async function load() {
     const result = await wls.targetChoices()
     choices.value = { servers: items(result.servers), clusters: items(result.clusters) }
   } catch (err) {
-    ui.error('Could not read the targets available', err.fullText || err.message)
+    ui.error(t('Could not read the targets available'), err.fullText || err.message)
   } finally {
     loading.value = false
   }
@@ -84,12 +85,14 @@ const entries = computed(() => [
   ...choices.value.clusters.map((cluster) => ({
     kind: 'clusters',
     name: cluster.name,
-    note: 'Cluster — every member serves it',
+    note: t('Cluster — every member serves it'),
   })),
   ...choices.value.servers.map((server) => ({
     kind: 'servers',
     name: server.name,
-    note: clusterOf.value.get(server.name) ? `Member of ${clusterOf.value.get(server.name)}` : 'Standalone server',
+    note: clusterOf.value.get(server.name)
+      ? t('Member of {cluster}', { cluster: clusterOf.value.get(server.name) })
+      : t('Standalone server'),
   })),
 ])
 
@@ -118,20 +121,20 @@ const removed = computed(() => props.current.filter((name) => !selected.value.ha
 async function save() {
   const targets = chosenEntries.value.map((entry) => ({ kind: entry.kind, name: entry.name }))
   const body = [
-    added.value.length ? `Adding: ${added.value.join(', ')}.` : '',
-    removed.value.length ? `Removing: ${removed.value.join(', ')}.` : '',
+    added.value.length ? t('Adding: {targets}.', { targets: added.value.join(', ') }) : '',
+    removed.value.length ? t('Removing: {targets}.', { targets: removed.value.join(', ') }) : '',
     removed.value.length
-      ? 'A resource stops being available on a target the moment it is removed there.'
-      : 'The resource is deployed to the new targets when the change is activated.',
-    targets.length ? '' : 'With no targets left, this resource is deployed nowhere at all.',
+      ? t('A resource stops being available on a target the moment it is removed there.')
+      : t('The resource is deployed to the new targets when the change is activated.'),
+    targets.length ? '' : t('With no targets left, this resource is deployed nowhere at all.'),
   ]
     .filter(Boolean)
     .join(' ')
 
   const ok = await confirm.value.ask({
-    title: `Change where ${props.name} is deployed?`,
+    title: t('Change where {name} is deployed?', { name: props.name }),
     body,
-    confirmLabel: 'Save and activate',
+    confirmLabel: t('Save and activate'),
     danger: removed.value.length > 0 || !targets.length,
   })
   if (!ok) return
@@ -140,10 +143,16 @@ async function save() {
   try {
     await changes.save([{ path: props.path, attributes: { targets: config.targetIdentities(targets) } }])
     await changes.activate()
-    ui.success('Targets updated', `${props.name} is now targeted at ${targets.map((t) => t.name).join(', ') || 'nothing'}.`)
+    ui.success(
+      t('Targets updated'),
+      t('{name} is now targeted at {targets}.', {
+        name: props.name,
+        targets: targets.map((target) => target.name).join(', ') || t('nothing'),
+      }),
+    )
     emit('changed')
   } catch (err) {
-    ui.error('Could not change the targets', err.fullText || err.message)
+    ui.error(t('Could not change the targets'), err.fullText || err.message)
   } finally {
     saving.value = false
   }
@@ -153,8 +162,8 @@ function showScript() {
   const targets = chosenEntries.value.map((entry) => entry.name)
   const context = { username: connection.username, baseUrl: connection.baseUrl }
   snippet.value.show({
-    title: `Re-targeting ${props.name}`,
-    subtitle: 'Targets are replaced as a whole, not added to.',
+    title: t('Re-targeting {name}', { name: props.name }),
+    subtitle: t('Targets are replaced as a whole, not added to.'),
     wlst: wlstForTargets(props.wlstType, props.name, targets, context),
     curl: curlFor(
       'POST',
@@ -171,23 +180,36 @@ function showScript() {
     <div class="flex flex-wrap items-start justify-between gap-2">
       <div>
         <h3 class="flex items-center gap-1.5 text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          Targets
+          {{ $t('Targets') }}
           <InfoTip
-            heading="Targets"
-            text="The servers and clusters this resource is deployed to. Targeting a cluster deploys to every member, now and in future — that is nearly always what you want over picking members one by one."
+            :heading="$t('Targets')"
+            :text="
+              $t(
+                'The servers and clusters this resource is deployed to. Targeting a cluster deploys to every member, now and in future — that is nearly always what you want over picking members one by one.',
+              )
+            "
           />
         </h3>
         <p class="mt-0.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-          {{ description || 'Tick where this should be deployed. The change is staged and activated like any other configuration change.' }}
+          {{
+            description ||
+            $t(
+              'Tick where this should be deployed. The change is staged and activated like any other configuration change.',
+            )
+          }}
         </p>
       </div>
-      <button class="btn btn-ghost" title="Show this change as a WLST script and as a curl command" @click="showScript">
-        Show script
+      <button
+        class="btn btn-ghost"
+        :title="$t('Show this change as a WLST script and as a curl command')"
+        @click="showScript"
+      >
+        {{ $t('Show script') }}
       </button>
     </div>
 
     <p v-if="loading && !entries.length" class="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-      Reading the servers and clusters in this domain…
+      {{ $t('Reading the servers and clusters in this domain…') }}
     </p>
 
     <div v-else class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -222,9 +244,9 @@ function showScript() {
         <span v-if="removed.length" class="text-red-600 dark:text-red-400">−{{ removed.join(', ') }}</span>
       </p>
       <div class="ml-auto flex gap-2">
-        <button class="btn btn-ghost" :disabled="saving" @click="revert">Undo</button>
+        <button class="btn btn-ghost" :disabled="saving" @click="revert">{{ $t('Undo') }}</button>
         <button class="btn btn-primary" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : 'Save and activate' }}
+          {{ saving ? $t('Saving…') : $t('Save and activate') }}
         </button>
       </div>
     </div>

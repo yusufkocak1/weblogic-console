@@ -1,5 +1,6 @@
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
+import { t } from '@/i18n'
 
 /**
  * Brings a saved profile back to life. Everything but the password is on file,
@@ -19,7 +20,7 @@ export function useReconnect(promptRef) {
     try {
       await connection.connect({ ...profile, password: answer.password })
       answer.done()
-      ui.success('Connected', `Now working on ${profile.name}.`)
+      ui.success(t('Connected'), t('Now working on {name}.', { name: profile.name }))
       return true
     } catch (err) {
       answer.fail(err)

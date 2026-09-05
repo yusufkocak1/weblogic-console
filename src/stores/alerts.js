@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { useUiStore } from '@/stores/ui'
 import { setTitleBadge } from '@/utils/title'
+import { t } from '@/i18n'
 
 /**
  * Watching the domain, so nobody has to sit and watch it.
@@ -120,8 +121,8 @@ export const useAlertsStore = defineStore('alerts', {
       }
       if (enabled && !granted) {
         useUiStore().info(
-          'Desktop notifications are blocked',
-          'The browser refused permission for this site, so alerts will only appear in the console.',
+          t('Desktop notifications are blocked'),
+          t('The browser refused permission for this site, so alerts will only appear in the console.'),
         )
       }
       return this.desktop
@@ -185,13 +186,13 @@ export const useAlertsStore = defineStore('alerts', {
         key: `down:${server}`,
         active: this.rules.serverDown && !running && entry.st !== 'UNKNOWN',
         severity: 'error',
-        title: `${server} is ${String(entry.st || 'not running').toLowerCase()}`,
-        detail: 'The server left the RUNNING state. Check the Servers page and its log.',
+        title: t('{server} is {state}', { server, state: String(entry.st || t('not running')).toLowerCase() }),
+        detail: t('The server left the RUNNING state. Check the Servers page and its log.'),
         server,
         recovery: {
           severity: 'info',
-          title: `${server} is running again`,
-          detail: 'The server is back in the RUNNING state.',
+          title: t('{server} is running again', { server }),
+          detail: t('The server is back in the RUNNING state.'),
         },
       })
 
@@ -200,13 +201,16 @@ export const useAlertsStore = defineStore('alerts', {
         key: `heap:${server}`,
         active: running && heapPercent !== null && heapPercent >= Number(this.rules.heapPercent || 0),
         severity: 'warn',
-        title: `${server} heap at ${Math.round(heapPercent || 0)}%`,
-        detail: `Heap in use has passed ${this.rules.heapPercent}% of the JVM maximum. Sustained, this shows up as slowness long before an OutOfMemoryError.`,
+        title: t('{server} heap at {percent}%', { server, percent: Math.round(heapPercent || 0) }),
+        detail: t(
+          'Heap in use has passed {threshold}% of the JVM maximum. Sustained, this shows up as slowness long before an OutOfMemoryError.',
+          { threshold: this.rules.heapPercent },
+        ),
         server,
         recovery: {
           severity: 'info',
-          title: `${server} heap is back under ${this.rules.heapPercent}%`,
-          detail: 'Garbage collection recovered the memory.',
+          title: t('{server} heap is back under {threshold}%', { server, threshold: this.rules.heapPercent }),
+          detail: t('Garbage collection recovered the memory.'),
         },
       })
 
@@ -214,13 +218,16 @@ export const useAlertsStore = defineStore('alerts', {
         key: `stuck:${server}`,
         active: running && entry.sk >= Number(this.rules.stuckThreads || 1),
         severity: 'error',
-        title: `${server} has ${entry.sk} stuck thread${entry.sk === 1 ? '' : 's'}`,
-        detail: 'Requests are blocked on something outside the server — a database, a remote call or a lock.',
+        title:
+          entry.sk === 1
+            ? t('{server} has 1 stuck thread', { server })
+            : t('{server} has {count} stuck threads', { server, count: entry.sk }),
+        detail: t('Requests are blocked on something outside the server — a database, a remote call or a lock.'),
         server,
         recovery: {
           severity: 'info',
-          title: `${server} has no stuck threads`,
-          detail: 'Whatever the threads were waiting on has cleared.',
+          title: t('{server} has no stuck threads', { server }),
+          detail: t('Whatever the threads were waiting on has cleared.'),
         },
       })
 
@@ -228,8 +235,8 @@ export const useAlertsStore = defineStore('alerts', {
         key: `queue:${server}`,
         active: running && entry.q >= Number(this.rules.queueLength || 0) && Number(this.rules.queueLength) > 0,
         severity: 'warn',
-        title: `${server} has ${entry.q} requests queued`,
-        detail: 'More work is arriving than the thread pool is finishing. Look for a slow downstream system first.',
+        title: t('{server} has {count} requests queued', { server, count: entry.q }),
+        detail: t('More work is arriving than the thread pool is finishing. Look for a slow downstream system first.'),
         server,
       })
 
@@ -237,10 +244,14 @@ export const useAlertsStore = defineStore('alerts', {
         key: `health:${server}`,
         active: this.rules.unhealthy && running && entry.he && entry.he !== 'OK' && entry.he !== 'UNKNOWN',
         severity: 'warn',
-        title: `${server} reports ${entry.he}`,
-        detail: 'The server is running but does not consider itself healthy. Its log usually says which subsystem.',
+        title: t('{server} reports {health}', { server, health: entry.he }),
+        detail: t('The server is running but does not consider itself healthy. Its log usually says which subsystem.'),
         server,
-        recovery: { severity: 'info', title: `${server} reports OK again`, detail: 'Health is back to normal.' },
+        recovery: {
+          severity: 'info',
+          title: t('{server} reports OK again', { server }),
+          detail: t('Health is back to normal.'),
+        },
       })
     },
 

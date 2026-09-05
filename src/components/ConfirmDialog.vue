@@ -1,10 +1,11 @@
 <script setup>
 import { ref } from 'vue'
 import SnippetDialog from '@/components/SnippetDialog.vue'
+import { t } from '@/i18n'
 
 const open = ref(false)
 const pending = ref(false)
-const config = ref({ title: '', body: '', confirmLabel: 'Confirm', danger: false, changes: null, script: null })
+const config = ref({ title: '', body: '', confirmLabel: '', danger: false, changes: null, script: null })
 const snippet = ref(null)
 let resolver = null
 
@@ -23,9 +24,9 @@ let resolver = null
  */
 function ask(options) {
   config.value = {
-    title: 'Are you sure?',
+    title: t('Are you sure?'),
     body: '',
-    confirmLabel: 'Confirm',
+    confirmLabel: t('Confirm'),
     danger: false,
     changes: null,
     script: null,
@@ -91,12 +92,12 @@ defineExpose({ ask })
             <button
               v-if="config.script"
               class="btn btn-ghost mr-auto"
-              title="Show this operation as a WLST script and as the REST call the console makes"
+              :title="$t('Show this operation as a WLST script and as the REST call the console makes')"
               @click="showScript"
             >
-              Show script
+              {{ $t('Show script') }}
             </button>
-            <button class="btn btn-ghost" :disabled="pending" @click="settle(false)">Cancel</button>
+            <button class="btn btn-ghost" :disabled="pending" @click="settle(false)">{{ $t('Cancel') }}</button>
             <button
               :class="['btn', config.danger ? 'btn-danger' : 'btn-primary']"
               :disabled="pending"

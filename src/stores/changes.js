@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as config from '@/api/config'
 import { items } from '@/utils/format'
+import { t } from '@/i18n'
 
 /**
  * The domain's pending configuration changes.
@@ -40,7 +41,7 @@ function describeChange(change) {
   const detail =
     from === null && to === null
       ? operation
-      : `${operation}: ${from === null || from === '' ? '(empty)' : from} → ${to === null || to === '' ? '(empty)' : to}`
+      : `${operation}: ${from === null || from === '' ? t('(empty)') : from} → ${to === null || to === '' ? t('(empty)') : to}`
   return { text, detail }
 }
 

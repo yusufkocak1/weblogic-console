@@ -10,6 +10,7 @@ import { useUiStore } from '@/stores/ui'
 import { curlForDeploy, wlstForDeploy } from '@/utils/wlst'
 import SnippetDialog from '@/components/SnippetDialog.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 /**
  * Installing an application, and replacing the archive of one already there.
@@ -36,21 +37,29 @@ const form = ref({ name: '', stagingMode: '', file: null, plan: null })
 const selected = ref(new Set())
 const choices = ref({ servers: [], clusters: [] })
 
-const STAGING = [
-  { value: '', label: 'Domain default' },
-  { value: 'stage', label: 'stage — copy the archive to each server' },
-  { value: 'nostage', label: 'nostage — every server reads the same path' },
-  { value: 'external_stage', label: 'external_stage — you copy it yourself' },
-]
+const STAGING = computed(() => [
+  { value: '', label: t('Domain default') },
+  { value: 'stage', label: t('stage — copy the archive to each server') },
+  { value: 'nostage', label: t('nostage — every server reads the same path') },
+  { value: 'external_stage', label: t('external_stage — you copy it yourself') },
+])
 
-const title = computed(() => (mode.value === 'redeploy' ? `Redeploy ${form.value.name}` : 'Deploy an application'))
+const title = computed(() =>
+  mode.value === 'redeploy' ? t('Redeploy {name}', { name: form.value.name }) : t('Deploy an application'),
+)
 
 const entries = computed(() => [
-  ...items(choices.value.clusters).map((cluster) => ({ kind: 'clusters', name: cluster.name, note: 'Cluster' })),
+  ...items(choices.value.clusters).map((cluster) => ({
+    kind: 'clusters',
+    name: cluster.name,
+    note: t('Cluster'),
+  })),
   ...items(choices.value.servers).map((server) => ({
     kind: 'servers',
     name: server.name,
-    note: targetNames(server.cluster)[0] ? `Member of ${targetNames(server.cluster)[0]}` : 'Standalone server',
+    note: targetNames(server.cluster)[0]
+      ? t('Member of {cluster}', { cluster: targetNames(server.cluster)[0] })
+      : t('Standalone server'),
   })),
 ])
 
@@ -64,7 +73,7 @@ async function show(options = {}) {
     const result = await wls.targetChoices()
     choices.value = result
   } catch (err) {
-    ui.error('Could not read the targets available', err.fullText || err.message)
+    ui.error(t('Could not read the targets available'), err.fullText || err.message)
   }
 }
 
@@ -109,53 +118,68 @@ async function submit() {
   if (!canSubmit.value || busy.value) return
   busy.value = true
   try {
-    step.value = 'Taking the configuration lock…'
+    step.value = t('Taking the configuration lock…')
     await changes.refresh()
     if (changes.locked && changes.lockOwner && changes.lockOwner !== connection.username) {
-      throw new Error(`${changes.lockOwner} holds the configuration lock. Ask them to activate or release it first.`)
+      throw new Error(
+        t('{owner} holds the configuration lock. Ask them to activate or release it first.', {
+          owner: changes.lockOwner,
+        }),
+      )
     }
     if (!changes.locked) await config.startEdit()
 
-    step.value = `Uploading ${form.value.file.name} (${bytes(form.value.file.size)})…`
+    step.value = t('Uploading {file} ({size})…', {
+      file: form.value.file.name,
+      size: bytes(form.value.file.size),
+    })
     const body = wls.deploymentForm({ file: form.value.file, plan: form.value.plan, model: buildModel() })
     if (mode.value === 'redeploy') await wls.redeployApplication(form.value.name.trim(), body)
     else await wls.deployApplication(body)
 
-    step.value = 'Activating the change…'
+    step.value = t('Activating the change…')
     await changes.activate()
 
     activity.record({
       kind: 'deployment',
-      title: `${mode.value === 'redeploy' ? 'Redeployed' : 'Deployed'} ${form.value.name.trim()}`,
-      summary: `${form.value.file.name} (${bytes(form.value.file.size)})${
-        chosen.value.length ? ` to ${chosen.value.map((entry) => entry.name).join(', ')}` : ''
-      }.`,
+      title:
+        mode.value === 'redeploy'
+          ? t('Redeployed {name}', { name: form.value.name.trim() })
+          : t('Deployed {name}', { name: form.value.name.trim() }),
+      summary: chosen.value.length
+        ? t('{file} ({size}) to {targets}.', {
+            file: form.value.file.name,
+            size: bytes(form.value.file.size),
+            targets: chosen.value.map((entry) => entry.name).join(', '),
+          })
+        : t('{file} ({size}).', { file: form.value.file.name, size: bytes(form.value.file.size) }),
       changes: [
         {
           label: form.value.name.trim(),
           attr: 'sourcePath',
-          from: mode.value === 'redeploy' ? 'the previous archive' : '(not deployed)',
+          from: mode.value === 'redeploy' ? t('the previous archive') : t('(not deployed)'),
           to: form.value.file.name,
           note: form.value.stagingMode || '',
         },
       ],
       undoNote:
         mode.value === 'redeploy'
-          ? 'A redeploy cannot be rolled back from here: the console does not keep the archive it replaced. ' +
-            'Deploy the previous file again to go back.'
-          : 'A deployment is undone by undeploying the application, which is done from its own page.',
+          ? t(
+              'A redeploy cannot be rolled back from here: the console does not keep the archive it replaced. Deploy the previous file again to go back.',
+            )
+          : t('A deployment is undone by undeploying the application, which is done from its own page.'),
     })
 
     ui.success(
-      mode.value === 'redeploy' ? 'Redeployed' : 'Deployed',
-      `${form.value.name} is installed. It can take a moment to reach ACTIVE on every target.`,
+      mode.value === 'redeploy' ? t('Redeployed') : t('Deployed'),
+      t('{name} is installed. It can take a moment to reach ACTIVE on every target.', { name: form.value.name }),
     )
     open.value = false
     emit('deployed')
   } catch (err) {
     ui.error(
-      mode.value === 'redeploy' ? 'Redeploy failed' : 'Deployment failed',
-      `${err.fullText || err.message} — the change was not activated, so the domain is unchanged.`,
+      mode.value === 'redeploy' ? t('Redeploy failed') : t('Deployment failed'),
+      `${err.fullText || err.message} — ${t('the change was not activated, so the domain is unchanged.')}`,
     )
     // Leaving a half-finished edit session behind would block everyone else.
     await changes.discard().catch(() => {})
@@ -168,14 +192,14 @@ async function submit() {
 function showScript() {
   const context = { username: connection.username, baseUrl: connection.baseUrl }
   const details = {
-    name: form.value.name || '<application>',
+    name: form.value.name || t('<application>'),
     path: form.value.file?.name ? `/path/to/${form.value.file.name}` : '/path/to/archive.war',
     targets: chosen.value.map((entry) => `${entry.kind}/${entry.name}`),
     stagingMode: form.value.stagingMode,
   }
   snippet.value.show({
     title: title.value,
-    subtitle: 'Deployment uploads the archive; WLST reads it from a path the AdminServer can see.',
+    subtitle: t('Deployment uploads the archive; WLST reads it from a path the AdminServer can see.'),
     wlst: wlstForDeploy(
       { ...details, targets: chosen.value.map((entry) => entry.name) },
       context,
@@ -197,17 +221,24 @@ defineExpose({ show })
       <div class="card w-full max-w-2xl p-5" role="dialog" aria-modal="true">
         <h2 class="text-base font-semibold text-zinc-900 dark:text-zinc-50">{{ title }}</h2>
         <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          The archive is uploaded through this console to the AdminServer and activated as a configuration change.
-          Nothing is written to the domain until the upload has succeeded.
+          {{
+            $t(
+              'The archive is uploaded through this console to the AdminServer and activated as a configuration change. Nothing is written to the domain until the upload has succeeded.',
+            )
+          }}
         </p>
 
         <div class="mt-4 space-y-4">
           <div>
             <label class="label-row" for="deploy-file">
-              Archive
+              {{ $t('Archive') }}
               <InfoTip
-                heading="Archive"
-                text="The WAR, EAR, JAR or RAR to install. It travels from this browser through the local console process to the AdminServer, so it does not need to exist on the AdminServer's own disk."
+                :heading="$t('Archive')"
+                :text="
+                  $t(
+                    'The WAR, EAR, JAR or RAR to install. It travels from this browser through the local console process to the AdminServer, so it does not need to exist on the AdminServer\'s own disk.',
+                  )
+                "
               />
             </label>
             <input
@@ -226,10 +257,14 @@ defineExpose({ show })
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
               <label class="label-row" for="deploy-name">
-                Deployment name
+                {{ $t('Deployment name') }}
                 <InfoTip
-                  heading="Deployment name"
-                  text="What the application is called in the domain — the name on the Deployments page, not the file name. Redeploying keeps the existing name."
+                  :heading="$t('Deployment name')"
+                  :text="
+                    $t(
+                      'What the application is called in the domain — the name on the Deployments page, not the file name. Redeploying keeps the existing name.',
+                    )
+                  "
                 />
               </label>
               <input
@@ -237,15 +272,19 @@ defineExpose({ show })
                 v-model="form.name"
                 class="input"
                 :disabled="busy || mode === 'redeploy'"
-                placeholder="myapp"
+                :placeholder="$t('myapp')"
               />
             </div>
             <div>
               <label class="label-row" for="deploy-staging">
-                Staging
+                {{ $t('Staging') }}
                 <InfoTip
-                  heading="Staging"
-                  text="stage copies the archive to each target server, which is the safe default. nostage leaves it on a path every server must be able to read. external_stage means you place it there yourself."
+                  :heading="$t('Staging')"
+                  :text="
+                    $t(
+                      'stage copies the archive to each target server, which is the safe default. nostage leaves it on a path every server must be able to read. external_stage means you place it there yourself.',
+                    )
+                  "
                 />
               </label>
               <select id="deploy-staging" v-model="form.stagingMode" class="input" :disabled="busy">
@@ -256,10 +295,14 @@ defineExpose({ show })
 
           <div v-if="mode !== 'redeploy'">
             <p class="label-row">
-              Targets
+              {{ $t('Targets') }}
               <InfoTip
-                heading="Targets"
-                text="Where the application will run. Targeting a cluster deploys it to every member, including members added later."
+                :heading="$t('Targets')"
+                :text="
+                  $t(
+                    'Where the application will run. Targeting a cluster deploys it to every member, including members added later.',
+                  )
+                "
               />
             </p>
             <div class="grid max-h-48 gap-2 overflow-y-auto sm:grid-cols-2">
@@ -290,7 +333,7 @@ defineExpose({ show })
 
           <details class="text-sm">
             <summary class="cursor-pointer text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100">
-              Deployment plan (optional)
+              {{ $t('Deployment plan (optional)') }}
             </summary>
             <input
               type="file"
@@ -300,7 +343,11 @@ defineExpose({ show })
               @change="form.plan = $event.target.files?.[0] || null"
             />
             <p class="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
-              A plan.xml overriding descriptor values for this environment. Leave it empty unless you already use one.
+              {{
+                $t(
+                  'A plan.xml overriding descriptor values for this environment. Leave it empty unless you already use one.',
+                )
+              }}
             </p>
           </details>
         </div>
@@ -308,10 +355,12 @@ defineExpose({ show })
         <p v-if="step" class="mt-4 text-sm text-indigo-600 dark:text-indigo-400">{{ step }}</p>
 
         <div class="mt-5 flex flex-wrap justify-end gap-2">
-          <button class="btn btn-ghost mr-auto" :disabled="busy" @click="showScript">Show script</button>
-          <button class="btn btn-ghost" :disabled="busy" @click="close">Cancel</button>
+          <button class="btn btn-ghost mr-auto" :disabled="busy" @click="showScript">
+            {{ $t('Show script') }}
+          </button>
+          <button class="btn btn-ghost" :disabled="busy" @click="close">{{ $t('Cancel') }}</button>
           <button class="btn btn-primary" :disabled="!canSubmit || busy" @click="submit">
-            {{ busy ? 'Working…' : mode === 'redeploy' ? 'Redeploy' : 'Deploy' }}
+            {{ busy ? $t('Working…') : mode === 'redeploy' ? $t('Redeploy') : $t('Deploy') }}
           </button>
         </div>
       </div>

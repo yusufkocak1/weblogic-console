@@ -8,7 +8,8 @@ import { useUiStore } from '@/stores/ui'
  */
 const props = defineProps({
   id: { type: String, required: true },
-  title: { type: String, default: 'How this page works' },
+  /** Empty falls back to a translated default at render time. */
+  title: { type: String, default: '' },
   defaultOpen: { type: Boolean, default: false },
 })
 
@@ -58,7 +59,9 @@ function toggle() {
         <circle cx="12" cy="12" r="9" />
         <path d="M12 11v5M12 7.5v.01" />
       </svg>
-      <span class="flex-1 text-sm font-medium text-indigo-900 dark:text-indigo-200">{{ title }}</span>
+      <span class="flex-1 text-sm font-medium text-indigo-900 dark:text-indigo-200">
+        {{ title || $t('How this page works') }}
+      </span>
       <svg
         class="h-3.5 w-3.5 shrink-0 text-indigo-500 transition-transform dark:text-indigo-400"
         :class="open && 'rotate-180'"

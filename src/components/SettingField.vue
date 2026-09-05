@@ -1,7 +1,8 @@
 <script setup>
 import { computed } from 'vue'
-import { IMPACTS } from '@/settings/catalog'
+import { impacts } from '@/settings/catalog'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 /**
  * One configurable attribute: what it is called in plain language, what it
@@ -21,7 +22,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-const impact = computed(() => (props.field.readonly ? null : IMPACTS[props.field.impact] || null))
+const impact = computed(() => (props.field.readonly ? null : impacts()[props.field.impact] || null))
 
 const changed = computed(() => !props.field.readonly && String(props.modelValue ?? '') !== String(props.original ?? ''))
 
@@ -36,12 +37,12 @@ const options = computed(() => {
   const list = props.field.options || []
   const current = props.modelValue
   if (current === null || current === '' || list.some((o) => o.value === current)) return list
-  return [{ value: current, label: `${current} — current value` }, ...list]
+  return [{ value: current, label: t('{value} — current value', { value: current }) }, ...list]
 })
 
 const display = (value) => {
   if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'boolean') return value ? 'On' : 'Off'
+  if (typeof value === 'boolean') return value ? t('On') : t('Off')
   return String(value)
 }
 
@@ -65,20 +66,25 @@ const inputClass = computed(() => [
       >
         {{ impact.label }}
       </span>
-      <InfoTip v-if="impact" :heading="impact.label" :text="impact.help" label="When this change takes effect" />
+      <InfoTip
+        v-if="impact"
+        :heading="impact.label"
+        :text="impact.help"
+        :label="$t('When this change takes effect')"
+      />
 
       <span
         v-if="field.readonly"
         class="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 ring-1 ring-inset ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400"
       >
-        Read-only
+        {{ $t('Read-only') }}
       </span>
 
       <span
         v-if="changed"
         class="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
       >
-        Edited
+        {{ $t('Edited') }}
       </span>
     </div>
 
@@ -123,7 +129,9 @@ const inputClass = computed(() => [
           ]"
         />
       </span>
-      <span class="font-medium text-zinc-800 dark:text-zinc-100">{{ modelValue ? 'On' : 'Off' }}</span>
+      <span class="font-medium text-zinc-800 dark:text-zinc-100">
+        {{ modelValue ? $t('On') : $t('Off') }}
+      </span>
     </button>
 
     <select
@@ -173,7 +181,7 @@ const inputClass = computed(() => [
     <p class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-400 dark:text-zinc-500">
       <span class="font-mono">{{ field.attr }}</span>
       <span v-if="changed" class="font-medium text-amber-600 dark:text-amber-400">
-        currently {{ display(original) }} on the AdminServer
+        {{ $t('currently {value} on the AdminServer', { value: display(original) }) }}
       </span>
     </p>
   </div>

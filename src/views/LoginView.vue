@@ -90,7 +90,7 @@ async function switchTo(item) {
         <div>
           <h1 class="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">WebLogic Console</h1>
           <p class="text-sm text-zinc-500 dark:text-zinc-400">
-            {{ addingAnother ? 'Add another AdminServer' : 'Connect to an AdminServer' }}
+            {{ addingAnother ? $t('Add another AdminServer') : $t('Connect to an AdminServer') }}
           </p>
         </div>
       </div>
@@ -111,7 +111,9 @@ async function switchTo(item) {
               {{ item.username }}@{{ item.host }}:{{ item.port }}
             </span>
           </span>
-          <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ item.active ? 'active' : 'open' }}</span>
+          <span class="text-xs text-zinc-400 dark:text-zinc-500">
+            {{ item.active ? $t('active') : $t('open') }}
+          </span>
         </button>
 
         <button
@@ -127,7 +129,7 @@ async function switchTo(item) {
               {{ profile.username }}@{{ profile.host }}:{{ profile.port }}<span v-if="profile.ssl"> · SSL</span>
             </span>
           </span>
-          <span class="text-xs text-zinc-400 dark:text-zinc-500">connect</span>
+          <span class="text-xs text-zinc-400 dark:text-zinc-500">{{ $t('connect') }}</span>
         </button>
       </div>
 
@@ -136,32 +138,46 @@ async function switchTo(item) {
         class="btn btn-ghost w-full"
         @click="showForm = true"
       >
-        New connection…
+        {{ $t('New connection…') }}
       </button>
 
-      <HelpPanel v-if="formVisible" id="login" title="What to enter here" default-open>
+      <HelpPanel v-if="formVisible" id="login" :title="$t('What to enter here')" default-open>
         <p>
-          Connect with the <strong>AdminServer</strong> of the domain - not a managed server. Everything in this
-          console goes through it.
+          {{
+            $t(
+              'Connect with the AdminServer of the domain, not a managed server. Everything in this console goes through it.',
+            )
+          }}
         </p>
         <ul class="list-disc space-y-1 pl-4">
           <li>
-            <strong>Host and port</strong> are the AdminServer's admin listen address, usually port 7001 (7002 with
-            SSL). Already have a <code class="font-mono">t3://host:port</code> address from a WLST script? Paste it
-            into the host box and it splits itself into the fields.
+            {{
+              $t(
+                'Host and port are the AdminServer\'s admin listen address, usually port 7001 (7002 with SSL). Already have a t3://host:port address from a WLST script? Paste it into the host box and it splits itself into the fields.',
+              )
+            }}
           </li>
           <li>
-            <strong>Username</strong> needs a role that can read the management API - Monitor is enough to look
-            around, Operator or Admin to start and stop things.
+            {{
+              $t(
+                'Username needs a role that can read the management API — Monitor is enough to look around, Operator or Admin to start and stop things.',
+              )
+            }}
           </li>
           <li>
-            <strong>Save this connection</strong> keeps the host, port and username on this machine for next time.
-            The password is never stored.
+            {{
+              $t(
+                'Save this connection keeps the host, port and username on this machine for next time. The password is never stored.',
+              )
+            }}
           </li>
         </ul>
         <p>
-          If connecting fails, check that the AdminServer is up on that port and that the REST management interface is
-          enabled for the domain.
+          {{
+            $t(
+              'If connecting fails, check that the AdminServer is up on that port and that the REST management interface is enabled for the domain.',
+            )
+          }}
         </p>
       </HelpPanel>
 
@@ -169,10 +185,14 @@ async function switchTo(item) {
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
             <label class="label-row" for="host">
-              Host or IP
+              {{ $t('Host or IP') }}
               <InfoTip
-                heading="Host or IP"
-                text="Where the AdminServer listens. A hostname, an IPv4 or IPv6 address, or a whole t3:// URL pasted from a WLST script — a URL is split into host, port and SSL automatically."
+                :heading="$t('Host or IP')"
+                :text="
+                  $t(
+                    'Where the AdminServer listens. A hostname, an IPv4 or IPv6 address, or a whole t3:// URL pasted from a WLST script — a URL is split into host, port and SSL automatically.',
+                  )
+                "
               />
             </label>
             <input
@@ -181,17 +201,21 @@ async function switchTo(item) {
               class="input"
               required
               autocomplete="off"
-              placeholder="10.0.0.12 or t3://10.0.0.12:7001"
+              :placeholder="$t('10.0.0.12 or t3://10.0.0.12:7001')"
               @blur="normalizeHost"
               @paste="$nextTick(normalizeHost)"
             />
           </div>
           <div>
             <label class="label-row" for="port">
-              Port
+              {{ $t('Port') }}
               <InfoTip
-                heading="Port"
-                text="The AdminServer's admin port: 7001 by default, or 7002 when the SSL port is used. T3 and HTTP share the same port, so a t3:// address gives you the right number."
+                :heading="$t('Port')"
+                :text="
+                  $t(
+                    'The AdminServer\'s admin port: 7001 by default, or 7002 when the SSL port is used. T3 and HTTP share the same port, so a t3:// address gives you the right number.',
+                  )
+                "
               />
             </label>
             <input id="port" v-model.number="form.port" class="input" required type="number" min="1" max="65535" />
@@ -200,10 +224,14 @@ async function switchTo(item) {
 
         <div>
           <label class="label-row" for="username">
-            Username
+            {{ $t('Username') }}
             <InfoTip
-              heading="Username"
-              text="A WebLogic account, not an operating-system one. It needs a role with access to the management API: Monitor to view, Operator or Admin to start and stop servers and applications."
+              :heading="$t('Username')"
+              :text="
+                $t(
+                  'A WebLogic account, not an operating-system one. It needs a role with access to the management API: Monitor to view, Operator or Admin to start and stop servers and applications.',
+                )
+              "
             />
           </label>
           <input id="username" v-model="form.username" class="input" required autocomplete="username" />
@@ -211,10 +239,14 @@ async function switchTo(item) {
 
         <div>
           <label class="label-row" for="password">
-            Password
+            {{ $t('Password') }}
             <InfoTip
-              heading="Password"
-              text="Held by the local console process for this session only, so it can talk to the AdminServer for you. It is never written to disk and never saved with a profile."
+              :heading="$t('Password')"
+              :text="
+                $t(
+                  'Held by the local console process for this session only, so it can talk to the AdminServer for you. It is never written to disk and never saved with a profile.',
+                )
+              "
             />
           </label>
           <div class="relative">
@@ -231,69 +263,93 @@ async function switchTo(item) {
               class="absolute right-2 top-1.5 text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
               @click="passwordVisible = !passwordVisible"
             >
-              {{ passwordVisible ? 'Hide' : 'Show' }}
+              {{ passwordVisible ? $t('Hide') : $t('Show') }}
             </button>
           </div>
         </div>
 
         <div>
           <label class="label-row" for="name">
-            Name <span class="font-normal text-zinc-400">(optional)</span>
+            {{ $t('Name') }} <span class="font-normal text-zinc-400">{{ $t('(optional)') }}</span>
             <InfoTip
-              heading="Name"
-              text="A label for this connection, so several open domains are easy to tell apart in the switcher. Defaults to the domain name reported by the AdminServer."
+              :heading="$t('Name')"
+              :text="
+                $t(
+                  'A label for this connection, so several open domains are easy to tell apart in the switcher. Defaults to the domain name reported by the AdminServer.',
+                )
+              "
             />
           </label>
-          <input id="name" v-model="form.name" class="input" placeholder="Production · Ankara" autocomplete="off" />
+          <input
+            id="name"
+            v-model="form.name"
+            class="input"
+            :placeholder="$t('Production · Ankara')"
+            autocomplete="off"
+          />
         </div>
 
         <div class="space-y-2 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-950/60">
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input v-model="form.ssl" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-            Use SSL (https)
+            {{ $t('Use SSL (https)') }}
             <InfoTip
-              heading="Use SSL"
-              text="Talk to the admin port over https instead of http. Turn it on only if the domain has its SSL listen port enabled — usually 7002. The address preview below shows the URL that will be called."
+              :heading="$t('Use SSL')"
+              :text="
+                $t(
+                  'Talk to the admin port over https instead of http. Turn it on only if the domain has its SSL listen port enabled — usually 7002. The address preview below shows the URL that will be called.',
+                )
+              "
             />
           </label>
           <label
             v-if="form.ssl"
             class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
-            title="Accept self-signed or otherwise untrusted certificates"
+            :title="$t('Accept self-signed or otherwise untrusted certificates')"
           >
             <input v-model="form.insecure" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-            Trust self-signed certificate
+            {{ $t('Trust self-signed certificate') }}
           </label>
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input v-model="form.save" type="checkbox" class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-            Save this connection
+            {{ $t('Save this connection') }}
             <InfoTip
-              heading="Save this connection"
-              text="Stores the host, port, username and name on this machine so the domain is one click away next time. The password is never included — you enter it once per console restart."
+              :heading="$t('Save this connection')"
+              :text="
+                $t(
+                  'Stores the host, port, username and name on this machine so the domain is one click away next time. The password is never included — you enter it once per console restart.',
+                )
+              "
             />
           </label>
           <p
             class="break-all font-mono text-xs text-zinc-400 dark:text-zinc-500"
-            title="The management API URL these fields build. This is exactly what the console will call."
+            :title="$t('The management API URL these fields build. This is exactly what the console will call.')"
           >
             {{ previewUrl }}
           </p>
           <p class="text-xs text-zinc-400 dark:text-zinc-500">
-            Paste a <code class="font-mono">t3://</code> address and it is split into these fields — T3 and HTTP share
-            the admin port.
+            {{
+              $t(
+                'Paste a t3:// address and it is split into these fields — T3 and HTTP share the admin port.',
+              )
+            }}
           </p>
         </div>
 
         <ErrorState v-if="error" :error="error" @retry="submit" />
 
         <button class="btn btn-primary w-full py-2" type="submit" :disabled="connection.busy">
-          {{ connection.busy ? 'Connecting…' : 'Connect' }}
+          {{ connection.busy ? $t('Connecting…') : $t('Connect') }}
         </button>
       </form>
 
       <p class="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-600">
-        Saved connections keep the host, port and username — never the password. Credentials are held by the local
-        console process for this session only.
+        {{
+          $t(
+            'Saved connections keep the host, port and username — never the password. Credentials are held by the local console process for this session only.',
+          )
+        }}
       </p>
     </div>
 

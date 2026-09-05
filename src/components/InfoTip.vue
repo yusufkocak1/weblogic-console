@@ -12,7 +12,8 @@ import { useUiStore } from '@/stores/ui'
 const props = defineProps({
   text: { type: String, default: '' },
   heading: { type: String, default: '' },
-  label: { type: String, default: 'What is this?' },
+  /** Empty falls back to a translated default at render time. */
+  label: { type: String, default: '' },
   width: { type: Number, default: 268 },
   tone: { type: String, default: 'muted' }, // muted | accent | warn
 })
@@ -95,7 +96,7 @@ onBeforeUnmount(hide)
       type="button"
       class="inline-flex h-4 w-4 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       :class="TONES[tone] || TONES.muted"
-      :aria-label="label"
+      :aria-label="label || $t('What is this?')"
       :aria-expanded="open"
       @click.stop.prevent="toggle"
       @mousedown.prevent

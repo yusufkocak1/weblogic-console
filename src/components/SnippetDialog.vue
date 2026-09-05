@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useUiStore } from '@/stores/ui'
+import { t } from '@/i18n'
 
 /**
  * "Show me what this does" — the same operation as a WLST script and as a curl
@@ -15,7 +16,7 @@ const tab = ref('wlst')
 const content = ref({ title: '', subtitle: '', wlst: '', curl: '' })
 
 function show(options) {
-  content.value = { title: 'Equivalent script', subtitle: '', wlst: '', curl: '', ...options }
+  content.value = { title: t('Equivalent script'), subtitle: '', wlst: '', curl: '', ...options }
   tab.value = content.value.wlst ? 'wlst' : 'curl'
   open.value = true
 }
@@ -25,11 +26,14 @@ const current = computed(() => (tab.value === 'wlst' ? content.value.wlst : cont
 async function copy() {
   try {
     await navigator.clipboard.writeText(current.value)
-    ui.success('Copied', `The ${tab.value === 'wlst' ? 'WLST script' : 'curl command'} is on the clipboard.`)
+    ui.success(
+      t('Copied'),
+      tab.value === 'wlst' ? t('The WLST script is on the clipboard.') : t('The curl command is on the clipboard.'),
+    )
   } catch {
     // Clipboard access is refused outside a secure context in some browsers;
     // selecting the text by hand still works, so say so rather than failing.
-    ui.info('Could not copy automatically', 'Select the text and copy it with Ctrl-C.')
+    ui.info(t('Could not copy automatically'), t('Select the text and copy it with Ctrl-C.'))
   }
 }
 
@@ -59,7 +63,7 @@ defineExpose({ show })
                 ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300'
                 : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100',
             ]"
-            title="The same operation as a WLST script"
+            :title="$t('The same operation as a WLST script')"
             @click="tab = 'wlst'"
           >
             WLST
@@ -72,13 +76,15 @@ defineExpose({ show })
                 ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300'
                 : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100',
             ]"
-            title="The REST request the console itself sends"
+            :title="$t('The REST request the console itself sends')"
             @click="tab = 'curl'"
           >
             curl
           </button>
-          <button class="btn btn-ghost ml-auto" title="Copy this to the clipboard" @click="copy">Copy</button>
-          <button class="btn btn-ghost" @click="open = false">Close</button>
+          <button class="btn btn-ghost ml-auto" :title="$t('Copy this to the clipboard')" @click="copy">
+            {{ $t('Copy') }}
+          </button>
+          <button class="btn btn-ghost" @click="open = false">{{ $t('Close') }}</button>
         </div>
 
         <pre
@@ -86,8 +92,11 @@ defineExpose({ show })
         >{{ current }}</pre>
 
         <p class="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-          The curl form is exactly what the console sends. The WLST form is a translation — check the MBean paths
-          before running it against a domain that matters, and never leave a real password in a script.
+          {{
+            $t(
+              'The curl form is exactly what the console sends. The WLST form is a translation — check the MBean paths before running it against a domain that matters, and never leave a real password in a script.',
+            )
+          }}
         </p>
       </div>
     </div>

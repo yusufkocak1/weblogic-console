@@ -8,6 +8,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 const ui = useUiStore()
 
@@ -19,14 +20,14 @@ const SEVERITY_RANK = Object.fromEntries(SEVERITIES.map((s, i) => [s.toUpperCase
 /** The value that means "the range in the two date boxes", not a rolling window. */
 const CUSTOM_WINDOW = 0
 
-const WINDOWS = [
-  { label: 'Last 15 minutes', value: 15 * 60_000 },
-  { label: 'Last hour', value: 60 * 60_000 },
-  { label: 'Last 6 hours', value: 6 * 60 * 60_000 },
-  { label: 'Last 24 hours', value: 24 * 60 * 60_000 },
-  { label: 'Last 7 days', value: 7 * 24 * 60 * 60_000 },
-  { label: 'Custom range…', value: CUSTOM_WINDOW },
-]
+const WINDOWS = computed(() => [
+  { label: t('Last 15 minutes'), value: 15 * 60_000 },
+  { label: t('Last hour'), value: 60 * 60_000 },
+  { label: t('Last 6 hours'), value: 6 * 60 * 60_000 },
+  { label: t('Last 24 hours'), value: 24 * 60 * 60_000 },
+  { label: t('Last 7 days'), value: 7 * 24 * 60 * 60_000 },
+  { label: t('Custom range…'), value: CUSTOM_WINDOW },
+])
 
 const SEVERITY_CLASSES = {
   EMERGENCY: 'text-red-600 dark:text-red-400',
@@ -40,12 +41,12 @@ const SEVERITY_CLASSES = {
   TRACE: 'text-zinc-400 dark:text-zinc-500',
 }
 
-const SORTS = [
-  { key: 'timestamp', label: 'Time', defaultDir: 'desc' },
-  { key: 'severity', label: 'Severity', defaultDir: 'asc' },
-  { key: 'subsystem', label: 'Subsystem', defaultDir: 'asc' },
-  { key: 'message', label: 'Message', defaultDir: 'asc' },
-]
+const SORTS = computed(() => [
+  { key: 'timestamp', label: t('Time'), defaultDir: 'desc' },
+  { key: 'severity', label: t('Severity'), defaultDir: 'asc' },
+  { key: 'subsystem', label: t('Subsystem'), defaultDir: 'asc' },
+  { key: 'message', label: t('Message'), defaultDir: 'asc' },
+])
 
 const form = reactive({
   server: '',
@@ -137,8 +138,8 @@ function resolveRange() {
   }
   const startTime = parseLocalInput(form.from)
   const endTime = parseLocalInput(form.to)
-  if (startTime === null || endTime === null) return { invalid: 'Enter both a start and an end time.' }
-  if (startTime >= endTime) return { invalid: 'The start of the range has to come before its end.' }
+  if (startTime === null || endTime === null) return { invalid: t('Enter both a start and an end time.') }
+  if (startTime >= endTime) return { invalid: t('The start of the range has to come before its end.') }
   return { startTime, endTime }
 }
 
@@ -203,7 +204,7 @@ async function loadLog() {
   if (!form.server) return
   const range = resolveRange()
   if (range.invalid) {
-    ui.info('Check the time range', range.invalid)
+    ui.info(t('Check the time range'), range.invalid)
     return
   }
   const seq = ++requestSeq
@@ -221,7 +222,7 @@ async function loadLog() {
     rows.value = result
     activeRange.value = range
     lastUpdated.value = Date.now()
-    if (!result.length) ui.info('No matching log records', 'Try a wider time window or a lower severity.')
+    if (!result.length) ui.info(t('No matching log records'), t('Try a wider time window or a lower severity.'))
   } catch (err) {
     if (seq !== requestSeq) return
     error.value = err
@@ -293,7 +294,7 @@ onBeforeUnmount(() => clearTimeout(debounce))
 // -------------------------------------------------------------------- sorting
 
 function toggleSort(key) {
-  const column = SORTS.find((s) => s.key === key)
+  const column = SORTS.value.find((s) => s.key === key)
   if (!column) return
   if (form.sort === key) form.dir = form.dir === 'asc' ? 'desc' : 'asc'
   else {
@@ -310,7 +311,7 @@ function sortValue(row, key) {
 }
 
 const sortedRows = computed(() => {
-  const key = SORTS.some((s) => s.key === form.sort) ? form.sort : 'timestamp'
+  const key = SORTS.value.some((s) => s.key === form.sort) ? form.sort : 'timestamp'
   const dir = form.dir === 'asc' ? 1 : -1
   return [...rows.value].sort((a, b) => {
     const av = sortValue(a, key)
@@ -341,6 +342,7 @@ const summary = computed(() => {
     return acc
   }, {})
   return Object.entries(counts)
+    // Severity names are WebLogic's own and stay in English — see src/i18n/tr.js.
     .map(([severity, count]) => `${count} ${severity.toLowerCase()}`)
     .join(' · ')
 })
@@ -349,65 +351,94 @@ const summary = computed(() => {
 <template>
   <div>
     <PageHeader
-      title="Logs"
-      :subtitle="summary || 'Server log records via the WLDF accessor'"
+      :title="$t('Logs')"
+      :subtitle="summary || $t('Server log records via the WLDF accessor')"
       :last-updated="lastUpdated"
       :refreshing="loading"
-      help="Reads log records straight out of a running server through the WLDF accessor, so you can search them without shell access to the machine. Set the filters, press Fetch, and the newest records appear first."
+      :help="
+        $t(
+          'Reads log records straight out of a running server through the WLDF accessor, so you can search them without shell access to the machine. Set the filters, press Fetch, and the newest records appear first.',
+        )
+      "
       @refresh="loadLog"
     />
 
-    <HelpPanel id="logs" title="How to find the error behind an incident">
+    <HelpPanel id="logs" :title="$t('How to find the error behind an incident')">
       <ol class="list-decimal space-y-1 pl-4">
-        <li>Pick the <strong>Server</strong> that showed the problem. Only running servers can be queried.</li>
+        <li>{{ $t('Pick the Server that showed the problem. Only running servers can be queried.') }}</li>
         <li>
-          Leave <strong>Log</strong> on ServerLog for application and server messages. DomainLog is the AdminServer's
-          merged copy, HTTPAccessLog is one line per HTTP request.
+          {{
+            $t(
+              'Leave Log on ServerLog for application and server messages. DomainLog is the AdminServer\'s merged copy, HTTPAccessLog is one line per HTTP request.',
+            )
+          }}
         </li>
         <li>
-          Set <strong>Minimum severity</strong> to Error and a <strong>Time window</strong> that covers the incident,
-          then press <strong>Fetch</strong>. When you know when it happened, pick <strong>Custom range</strong> and
-          give the exact start and end.
+          {{
+            $t(
+              'Set Minimum severity to Error and a Time window that covers the incident, then press Fetch. When you know when it happened, pick Custom range and give the exact start and end.',
+            )
+          }}
         </li>
         <li>
-          Nothing found? Widen the window or drop to Warning. Too much? Put a message id such as
-          <code class="font-mono">BEA-000337</code> or a class name in <strong>Message contains</strong>.
+          {{
+            $t(
+              'Nothing found? Widen the window or drop to Warning. Too much? Put a message id such as BEA-000337 or a class name in Message contains.',
+            )
+          }}
         </li>
         <li>
-          Click a heading in the <strong>Sort by</strong> row to reorder the records, and again to reverse it.
-          Severity orders by seriousness rather than by name, so the worst records come first.
+          {{
+            $t(
+              'Click a heading in the Sort by row to reorder the records, and again to reverse it. Severity orders by seriousness rather than by name, so the worst records come first.',
+            )
+          }}
         </li>
       </ol>
       <p>
-        The first matching record is usually the real cause; the ones after it are often knock-on failures. Note the
-        subsystem in brackets - JDBC, JMS or Deployer tells you which page to look at next.
+        {{
+          $t(
+            'The first matching record is usually the real cause; the ones after it are often knock-on failures. Note the subsystem in brackets — JDBC, JMS or Deployer tells you which page to look at next.',
+          )
+        }}
       </p>
       <p>
-        These filters and the sort are kept in the page's address, so the browser's back button steps through them and
-        the link in the address bar reopens exactly this search for whoever you send it to.
+        {{
+          $t(
+            'These filters and the sort are kept in the page\'s address, so the browser\'s back button steps through them and the link in the address bar reopens exactly this search for whoever you send it to.',
+          )
+        }}
       </p>
     </HelpPanel>
 
     <div class="card mb-4 grid gap-3 p-3 sm:grid-cols-2 lg:grid-cols-6">
       <div>
         <label class="label-row" for="log-server">
-          Server
+          {{ $t('Server') }}
           <InfoTip
-            heading="Server"
-            text="Which server's log to read. Each server writes its own log file, so pick the one that served the failing request. Stopped servers cannot be queried at all."
+            :heading="$t('Server')"
+            :text="
+              $t(
+                'Which server\'s log to read. Each server writes its own log file, so pick the one that served the failing request. Stopped servers cannot be queried at all.',
+              )
+            "
           />
         </label>
         <select id="log-server" v-model="form.server" class="input">
-          <option v-if="!servers.length" value="">No running server</option>
+          <option v-if="!servers.length" value="">{{ $t('No running server') }}</option>
           <option v-for="server in servers" :key="server" :value="server">{{ server }}</option>
         </select>
       </div>
       <div>
         <label class="label-row" for="log-name">
-          Log
+          {{ $t('Log') }}
           <InfoTip
-            heading="Log"
-            text="ServerLog is the general server and application log and the right default. DomainLog is the AdminServer's merged view of the domain. HTTPAccessLog has one line per HTTP request. DataSourceLog carries JDBC detail."
+            :heading="$t('Log')"
+            :text="
+              $t(
+                'ServerLog is the general server and application log and the right default. DomainLog is the AdminServer\'s merged view of the domain. HTTPAccessLog has one line per HTTP request. DataSourceLog carries JDBC detail.',
+              )
+            "
           />
         </label>
         <select id="log-name" v-model="form.log" class="input">
@@ -416,10 +447,14 @@ const summary = computed(() => {
       </div>
       <div>
         <label class="label-row" for="log-severity">
-          Minimum severity
+          {{ $t('Minimum severity') }}
           <InfoTip
-            heading="Minimum severity"
-            text="Keeps this level and everything more serious. Error is the usual starting point; Warning catches problems that have not failed yet; Info is verbose on a busy server."
+            :heading="$t('Minimum severity')"
+            :text="
+              $t(
+                'Keeps this level and everything more serious. Error is the usual starting point; Warning catches problems that have not failed yet; Info is verbose on a busy server.',
+              )
+            "
           />
         </label>
         <select id="log-severity" v-model="form.minSeverity" class="input">
@@ -428,10 +463,14 @@ const summary = computed(() => {
       </div>
       <div>
         <label class="label-row" for="log-window">
-          Time window
+          {{ $t('Time window') }}
           <InfoTip
-            heading="Time window"
-            text="How far back to search, counted from now. Custom range takes an exact start and end in this browser's timezone, which is what you want when you know when the incident happened. Records outside the window are dropped even when the server sends them."
+            :heading="$t('Time window')"
+            :text="
+              $t(
+                'How far back to search, counted from now. Custom range takes an exact start and end in this browser\'s timezone, which is what you want when you know when the incident happened. Records outside the window are dropped even when the server sends them.',
+              )
+            "
           />
         </label>
         <select id="log-window" v-model.number="form.sinceMs" class="input">
@@ -440,52 +479,70 @@ const summary = computed(() => {
       </div>
       <div>
         <label class="label-row" for="log-contains">
-          Message contains
+          {{ $t('Message contains') }}
           <InfoTip
-            heading="Message contains"
-            text="Free text matched inside the message body, case sensitive. Good values: a message id such as BEA-000337, an exception class, an order number. Leave it empty to see everything at this severity."
+            :heading="$t('Message contains')"
+            :text="
+              $t(
+                'Free text matched inside the message body, case sensitive. Good values: a message id such as BEA-000337, an exception class, an order number. Leave it empty to see everything at this severity.',
+              )
+            "
           />
         </label>
-        <input id="log-contains" v-model="form.contains" class="input" placeholder="e.g. BEA-000337" @keyup.enter="loadLog" />
+        <input
+          id="log-contains"
+          v-model="form.contains"
+          class="input"
+          :placeholder="$t('e.g. BEA-000337')"
+          @keyup.enter="loadLog"
+        />
       </div>
       <div class="flex items-end gap-2">
         <div class="w-20">
           <label class="label-row" for="log-limit">
-            Limit
+            {{ $t('Limit') }}
             <InfoTip
-              heading="Limit"
-              text="Most records to fetch, between 10 and 2000. The newest ones inside the window are kept, so a low limit on a wide window can hide older matches."
+              :heading="$t('Limit')"
+              :text="
+                $t(
+                  'Most records to fetch, between 10 and 2000. The newest ones inside the window are kept, so a low limit on a wide window can hide older matches.',
+                )
+              "
             />
           </label>
           <input id="log-limit" v-model.number="form.limit" class="input" type="number" min="10" max="2000" step="10" />
         </div>
         <button
           class="btn btn-primary flex-1"
-          title="Run the query with these filters. Severity, log, window and time changes fetch on their own; the text box needs this button or the Enter key."
+          :title="
+            $t(
+              'Run the query with these filters. Severity, log, window and time changes fetch on their own; the text box needs this button or the Enter key.',
+            )
+          "
           :disabled="loading || !form.server || !!rangeIssue"
           @click="loadLog"
         >
-          {{ loading ? 'Loading…' : 'Fetch' }}
+          {{ loading ? $t('Loading…') : $t('Fetch') }}
         </button>
       </div>
 
       <div v-if="isCustom" class="grid gap-3 sm:col-span-2 sm:grid-cols-2 lg:col-span-6 lg:grid-cols-3">
         <div>
           <label class="label-row" for="log-from">
-            From
+            {{ $t('From') }}
             <InfoTip
-              heading="From"
-              text="Start of the range, read in this browser's timezone. Records before it are not shown."
+              :heading="$t('From')"
+              :text="$t('Start of the range, read in this browser\'s timezone. Records before it are not shown.')"
             />
           </label>
           <input id="log-from" v-model="form.from" class="input" type="datetime-local" />
         </div>
         <div>
           <label class="label-row" for="log-to">
-            To
+            {{ $t('To') }}
             <InfoTip
-              heading="To"
-              text="End of the range, read in this browser's timezone. Records after it are not shown."
+              :heading="$t('To')"
+              :text="$t('End of the range, read in this browser\'s timezone. Records after it are not shown.')"
             />
           </label>
           <input id="log-to" v-model="form.to" class="input" type="datetime-local" />
@@ -494,13 +551,13 @@ const summary = computed(() => {
       </div>
     </div>
 
-    <ErrorState v-if="error" :error="error" title="Could not read the log" @retry="loadLog" />
+    <ErrorState v-if="error" :error="error" :title="$t('Could not read the log')" @retry="loadLog" />
 
     <div v-else class="card overflow-hidden">
       <div
         class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-zinc-100 px-3 py-2 text-xs dark:border-zinc-800"
       >
-        <span class="text-zinc-500 dark:text-zinc-400">Sort by</span>
+        <span class="text-zinc-500 dark:text-zinc-400">{{ $t('Sort by') }}</span>
         <button
           v-for="column in SORTS"
           :key="column.key"
@@ -510,19 +567,21 @@ const summary = computed(() => {
               ? 'text-zinc-900 dark:text-zinc-100'
               : 'text-zinc-500 dark:text-zinc-400'
           "
-          :title="`Order the records by ${column.label.toLowerCase()}. Click again to reverse it.`"
+          :title="$t('Order the records by {column}. Click again to reverse it.', { column: column.label.toLowerCase() })"
           @click="toggleSort(column.key)"
         >
           {{ column.label }} <span class="text-indigo-500">{{ sortArrow(column.key) }}</span>
         </button>
         <span v-if="activeRange" class="ml-auto tabular-nums text-zinc-400 dark:text-zinc-500">
-          {{ rows.length }} records · {{ formatRange(activeRange) }}
+          {{ $t('{count} records', { count: rows.length }) }} · {{ formatRange(activeRange) }}
         </span>
       </div>
 
-      <div v-if="loading && !rows.length" class="p-10 text-center text-sm text-zinc-400">Reading log records…</div>
+      <div v-if="loading && !rows.length" class="p-10 text-center text-sm text-zinc-400">
+        {{ $t('Reading log records…') }}
+      </div>
       <div v-else-if="!rows.length" class="p-10 text-center text-sm text-zinc-400">
-        No records for these filters.
+        {{ $t('No records for these filters.') }}
       </div>
       <ul v-else class="divide-y divide-zinc-100 dark:divide-zinc-800">
         <li v-for="row in sortedRows" :key="row.id" class="px-3 py-2 font-mono text-xs leading-relaxed">
@@ -540,7 +599,11 @@ const summary = computed(() => {
     </div>
 
     <p class="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
-      Records are read through the WLDF data accessor on the selected server and trimmed to the time window shown above.
+      {{
+        $t(
+          'Records are read through the WLDF data accessor on the selected server and trimmed to the time window shown above.',
+        )
+      }}
     </p>
   </div>
 </template>

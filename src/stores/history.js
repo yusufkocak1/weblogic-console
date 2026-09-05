@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as api from '@/api/client'
 import { useAlertsStore } from '@/stores/alerts'
+import { t } from '@/i18n'
 
 /**
  * The recent past of every server in the active domain.
@@ -92,7 +93,7 @@ export const useHistoryStore = defineStore('history', {
       } catch (err) {
         // A dead session is handled by whichever page is open; here it only
         // means there is nothing to draw.
-        this.error = err?.fullText || err?.message || 'History is unavailable.'
+        this.error = err?.fullText || err?.message || t('History is unavailable.')
       }
     },
 

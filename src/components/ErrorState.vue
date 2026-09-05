@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { t } from '@/i18n'
 
 const props = defineProps({
   error: { type: [Object, String], default: null },
@@ -7,7 +8,7 @@ const props = defineProps({
 })
 defineEmits(['retry'])
 
-const heading = computed(() => props.title || props.error?.message || 'Something went wrong')
+const heading = computed(() => props.title || props.error?.message || t('Something went wrong'))
 const detail = computed(() => {
   if (typeof props.error === 'string') return props.error
   const parts = [props.error?.detail, ...(props.error?.messages || [])].filter(Boolean)
@@ -35,7 +36,7 @@ const detail = computed(() => {
         <p v-if="error?.status" class="mt-1 font-mono text-xs text-red-600/70 dark:text-red-400/70">
           HTTP {{ error.status }}
         </p>
-        <button class="btn btn-ghost mt-3" @click="$emit('retry')">Try again</button>
+        <button class="btn btn-ghost mt-3" @click="$emit('retry')">{{ $t('Try again') }}</button>
       </div>
     </div>
   </div>

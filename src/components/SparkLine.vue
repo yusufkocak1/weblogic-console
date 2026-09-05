@@ -16,8 +16,9 @@ const props = defineProps({
   height: { type: Number, default: 28 },
   /** default | good | warn | bad — matched to what the number means. */
   tone: { type: String, default: 'default' },
-  /** Shown when there is not enough history yet to draw anything. */
-  emptyText: { type: String, default: 'no history yet' },
+  /** Shown when there is not enough history yet to draw anything. Empty falls
+   *  back to a translated default at render time. */
+  emptyText: { type: String, default: '' },
   title: { type: String, default: '' },
 })
 
@@ -69,7 +70,7 @@ const area = computed(() => (points.value ? `0,${props.height} ${points.value} $
       :viewBox="`0 0 ${WIDTH} ${height}`"
       preserveAspectRatio="none"
       role="img"
-      :aria-label="title || 'Recent history'"
+      :aria-label="title || $t('Recent history')"
     >
       <polygon :points="area" fill="currentColor" opacity="0.12" />
       <polyline
@@ -83,7 +84,7 @@ const area = computed(() => (points.value ? `0,${props.height} ${points.value} $
       />
     </svg>
     <p v-else class="text-[11px] text-zinc-400 dark:text-zinc-600" :style="{ lineHeight: `${height}px` }">
-      {{ emptyText }}
+      {{ emptyText || $t('no history yet') }}
     </p>
   </div>
 </template>

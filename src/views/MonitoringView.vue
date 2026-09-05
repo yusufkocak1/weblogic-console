@@ -11,6 +11,7 @@ import StateBadge from '@/components/StateBadge.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import { t } from '@/i18n'
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(({ signal }) =>
   wls.runtimeSnapshot({ signal }),
@@ -24,8 +25,10 @@ const history = useHistoryStore()
 
 const historyWindow = computed(() => {
   const minutes = Math.round(history.span / 60000)
-  if (!minutes) return 'building up'
-  return minutes < 60 ? `last ${minutes} min` : `last ${(minutes / 60).toFixed(1)} h`
+  if (!minutes) return t('building up')
+  return minutes < 60
+    ? t('last {minutes} min', { minutes })
+    : t('last {hours} h', { hours: (minutes / 60).toFixed(1) })
 })
 
 const servers = computed(() =>
@@ -65,40 +68,57 @@ const servers = computed(() =>
 <template>
   <div>
     <PageHeader
-      title="Monitoring"
-      subtitle="JVM memory and thread pool health per running server"
+      :title="$t('Monitoring')"
+      :subtitle="$t('JVM memory and thread pool health per running server')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="One card per running server, with the two things that explain most WebLogic slowdowns: how much heap the JVM is using, and how busy its request thread pool is. Only running servers appear here."
+      :help="
+        $t(
+          'One card per running server, with the two things that explain most WebLogic slowdowns: how much heap the JVM is using, and how busy its request thread pool is. Only running servers appear here.',
+        )
+      "
       @refresh="reload"
     />
 
-    <HelpPanel id="monitoring" title="How to work out why a server feels slow">
+    <HelpPanel id="monitoring" :title="$t('How to work out why a server feels slow')">
       <ol class="list-decimal space-y-1 pl-4">
         <li>
-          <strong>Heap red or amber and staying there?</strong> The JVM is short of memory. It will spend its time in
-          garbage collection long before it throws OutOfMemoryError, so this shows up as slowness first.
+          {{
+            $t(
+              'Heap red or amber and staying there? The JVM is short of memory. It will spend its time in garbage collection long before it throws OutOfMemoryError, so this shows up as slowness first.',
+            )
+          }}
         </li>
         <li>
-          <strong>Stuck above zero?</strong> Requests are blocked on something outside the server - a database, a
-          remote call, a lock. Check Data Sources for waiting connections, then read Logs on that server.
+          {{
+            $t(
+              'Stuck above zero? Requests are blocked on something outside the server — a database, a remote call, a lock. Check Data Sources for waiting connections, then read Logs on that server.',
+            )
+          }}
         </li>
         <li>
-          <strong>Thread pool bar near full with a growing queue?</strong> More work is arriving than the server can
-          finish. Look for a slow downstream system before adding capacity.
+          {{
+            $t(
+              'Thread pool bar near full with a growing queue? More work is arriving than the server can finish. Look for a slow downstream system before adding capacity.',
+            )
+          }}
         </li>
       </ol>
       <p>
-        The line under each bar is the last couple of hours, sampled in the background — so the direction is there
-        the moment you open the page, without having to sit and watch it. A heap that sawtooths is healthy garbage
-        collection; one that climbs in steps and never returns is a leak.
+        {{
+          $t(
+            'The line under each bar is the last couple of hours, sampled in the background — so the direction is there the moment you open the page, without having to sit and watch it. A heap that sawtooths is healthy garbage collection; one that climbs in steps and never returns is a leak.',
+          )
+        }}
       </p>
     </HelpPanel>
 
     <ErrorState v-if="error && !data" :error="error" @retry="reload" />
-    <div v-else-if="loading && !servers.length" class="card p-8 text-center text-sm text-zinc-400">Loading…</div>
+    <div v-else-if="loading && !servers.length" class="card p-8 text-center text-sm text-zinc-400">
+      {{ $t('Loading…') }}
+    </div>
     <div v-else-if="!servers.length" class="card p-8 text-center text-sm text-zinc-400">
-      No server is running, so there is no runtime to monitor.
+      {{ $t('No server is running, so there is no runtime to monitor.') }}
     </div>
 
     <div v-else class="grid gap-4 xl:grid-cols-2">
@@ -119,17 +139,25 @@ const servers = computed(() =>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
             <p class="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-              Heap
+              {{ $t('Heap') }}
               <InfoTip
-                heading="Java heap"
-                text="Memory available to application objects. WebLogic reports what is committed now and the maximum the JVM may grow to (-Xmx). Used memory sawtooths as garbage collection runs; what matters is whether the low points keep rising."
+                :heading="$t('Java heap')"
+                :text="
+                  $t(
+                    'Memory available to application objects. WebLogic reports what is committed now and the maximum the JVM may grow to (-Xmx). Used memory sawtooths as garbage collection runs; what matters is whether the low points keep rising.',
+                  )
+                "
               />
             </p>
             <MeterBar
-              tip="Heap in use against the JVM maximum. Amber past 75%, red past 90%. A bar that never drops after garbage collection is the classic memory-leak shape."
+              :tip="
+                $t(
+                  'Heap in use against the JVM maximum. Amber past 75%, red past 90%. A bar that never drops after garbage collection is the classic memory-leak shape.',
+                )
+              "
               :value="server.heapUsed"
               :max="server.heapMax || 1"
-              :label="`${bytes(server.heapUsed)} of ${bytes(server.heapMax)}`"
+              :label="$t('{used} of {max}', { used: bytes(server.heapUsed), max: bytes(server.heapMax) })"
             />
             <SparkLine
               class="mt-2"
@@ -137,28 +165,49 @@ const servers = computed(() =>
               :max="100"
               :height="34"
               :tone="history.heapPercentSeries(server.name).at(-1) >= 90 ? 'bad' : 'default'"
-              :title="`Heap used as a percentage of the maximum — ${historyWindow}`"
-              empty-text="history builds up while the console runs"
+              :title="$t('Heap used as a percentage of the maximum — {window}', { window: historyWindow })"
+              :empty-text="$t('history builds up while the console runs')"
             />
             <dl class="mt-2 space-y-1 text-xs">
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Committed
-                  <InfoTip heading="Committed" text="Heap the JVM has actually reserved from the operating system right now. It grows towards the maximum as needed." />
+                  {{ $t('Committed') }}
+                  <InfoTip
+                    :heading="$t('Committed')"
+                    :text="
+                      $t(
+                        'Heap the JVM has actually reserved from the operating system right now. It grows towards the maximum as needed.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">{{ bytes(server.heapCommitted) }}</dd>
               </div>
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Free of committed
-                  <InfoTip heading="Free of committed" text="Free share of the committed heap - not of the maximum. It can read comfortably high while the heap is still close to its ceiling, so read it together with the bar above." />
+                  {{ $t('Free of committed') }}
+                  <InfoTip
+                    :heading="$t('Free of committed')"
+                    :text="
+                      $t(
+                        'Free share of the committed heap - not of the maximum. It can read comfortably high while the heap is still close to its ceiling, so read it together with the bar above.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">{{ percent(server.heapFreePercent) }}</dd>
               </div>
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Uptime
-                  <InfoTip heading="Uptime" text="How long this JVM has been running. An uptime that resets on its own means the process is crashing and being restarted." />
+                  {{ $t('Uptime') }}
+                  <InfoTip
+                    :heading="$t('Uptime')"
+                    :text="
+                      $t(
+                        'How long this JVM has been running. An uptime that resets on its own means the process is crashing and being restarted.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">{{ duration(server.uptime) }}</dd>
               </div>
@@ -167,38 +216,60 @@ const servers = computed(() =>
 
           <div>
             <p class="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-              Thread pool
+              {{ $t('Thread pool') }}
               <InfoTip
-                heading="Self-tuning thread pool"
-                text="The threads that execute incoming requests. WebLogic sizes this pool itself based on throughput, so the count moving up and down is normal - busy threads against total is the number to watch."
+                :heading="$t('Self-tuning thread pool')"
+                :text="
+                  $t(
+                    'The threads that execute incoming requests. WebLogic sizes this pool itself based on throughput, so the count moving up and down is normal — busy threads against total is the number to watch.',
+                  )
+                "
               />
             </p>
             <MeterBar
-              tip="Threads currently executing requests against the total in the pool. Near full for long stretches means the server is saturated."
+              :tip="
+                $t(
+                  'Threads currently executing requests against the total in the pool. Near full for long stretches means the server is saturated.',
+                )
+              "
               :value="server.threadsBusy"
               :max="server.threadsTotal || 1"
-              :label="`${server.threadsBusy} busy of ${server.threadsTotal}`"
+              :label="$t('{busy} busy of {total}', { busy: server.threadsBusy, total: server.threadsTotal })"
             />
             <SparkLine
               class="mt-2"
               :values="history.series(server.name, 'tb')"
               :height="34"
               :tone="server.stuck > 0 ? 'bad' : 'default'"
-              :title="`Threads executing requests — ${historyWindow}`"
-              empty-text="history builds up while the console runs"
+              :title="$t('Threads executing requests — {window}', { window: historyWindow })"
+              :empty-text="$t('history builds up while the console runs')"
             />
             <dl class="mt-2 space-y-1 text-xs">
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Idle
-                  <InfoTip heading="Idle" text="Threads in the pool with nothing to do. Plenty of idle threads while requests are slow means the bottleneck is elsewhere." />
+                  {{ $t('Idle') }}
+                  <InfoTip
+                    :heading="$t('Idle')"
+                    :text="
+                      $t(
+                        'Threads in the pool with nothing to do. Plenty of idle threads while requests are slow means the bottleneck is elsewhere.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">{{ num(server.threadsIdle) }}</dd>
               </div>
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Hogging / stuck
-                  <InfoTip heading="Hogging / stuck" text="Hogging threads are holding on much longer than normal; stuck threads have exceeded the configured timeout (600s by default). Either number above zero deserves a look at the logs." />
+                  {{ $t('Hogging / stuck') }}
+                  <InfoTip
+                    :heading="$t('Hogging / stuck')"
+                    :text="
+                      $t(
+                        'Hogging threads are holding on much longer than normal; stuck threads have exceeded the configured timeout (600s by default). Either number above zero deserves a look at the logs.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd :class="['tabular-nums', server.stuck > 0 && 'font-semibold text-red-500']">
                   {{ num(server.hogging) }} / {{ num(server.stuck) }}
@@ -206,18 +277,36 @@ const servers = computed(() =>
               </div>
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Queue / pending
-                  <InfoTip heading="Queue / pending" text="Requests waiting for a thread, and user requests not yet handed to one. Both should sit near zero on a healthy server." />
+                  {{ $t('Queue / pending') }}
+                  <InfoTip
+                    :heading="$t('Queue / pending')"
+                    :text="
+                      $t(
+                        'Requests waiting for a thread, and user requests not yet handed to one. Both should sit near zero on a healthy server.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">{{ num(server.queueLength) }} / {{ num(server.pending) }}</dd>
               </div>
               <div class="flex justify-between">
                 <dt class="flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
-                  Throughput
-                  <InfoTip heading="Throughput" text="Requests completed per second, as measured by the self-tuning pool. Compare it between servers in the same cluster to spot an outlier." />
+                  {{ $t('Throughput') }}
+                  <InfoTip
+                    :heading="$t('Throughput')"
+                    :text="
+                      $t(
+                        'Requests completed per second, as measured by the self-tuning pool. Compare it between servers in the same cluster to spot an outlier.',
+                      )
+                    "
+                  />
                 </dt>
                 <dd class="tabular-nums">
-                  {{ server.throughput === undefined ? '—' : Number(server.throughput).toFixed(1) + ' req/s' }}
+                  {{
+                    server.throughput === undefined
+                      ? '—'
+                      : $t('{count} req/s', { count: Number(server.throughput).toFixed(1) })
+                  }}
                 </dd>
               </div>
             </dl>
@@ -225,15 +314,25 @@ const servers = computed(() =>
         </div>
 
         <p class="mt-4 border-t border-zinc-100 pt-3 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-          <span title="Network sockets the server currently holds open, including client connections and connections to other servers">
-            Open sockets {{ num(server.sockets) }}
+          <span
+            :title="
+              $t(
+                'Network sockets the server currently holds open, including client connections and connections to other servers',
+              )
+            "
+          >
+            {{ $t('Open sockets {count}', { count: num(server.sockets) }) }}
           </span>
           ·
-          <span title="Health the thread pool reports about itself - it turns critical when threads stay stuck">
-            Pool health {{ healthOf(server.poolHealth) }}
+          <span
+            :title="$t('Health the thread pool reports about itself — it turns critical when threads stay stuck')"
+          >
+            {{ $t('Pool health {health}', { health: healthOf(server.poolHealth) }) }}
           </span>
           ·
-          <span title="WebLogic version this server runs">{{ server.version || 'version unknown' }}</span>
+          <span :title="$t('WebLogic version this server runs')">
+            {{ server.version || $t('version unknown') }}
+          </span>
         </p>
       </section>
     </div>

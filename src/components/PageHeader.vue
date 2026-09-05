@@ -10,7 +10,8 @@ defineProps({
   help: { type: String, default: '' },
   /** Route to go back to, for a page that belongs under a list. */
   back: { type: Object, default: null },
-  backLabel: { type: String, default: 'Back' },
+  /** Empty falls back to a translated 'Back' at render time. */
+  backLabel: { type: String, default: '' },
 })
 defineEmits(['refresh'])
 </script>
@@ -26,11 +27,11 @@ defineEmits(['refresh'])
         <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="m15 18-6-6 6-6" />
         </svg>
-        {{ backLabel }}
+        {{ backLabel || $t('Back') }}
       </RouterLink>
       <h1 class="flex items-center gap-1.5 text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
         {{ title }}
-        <InfoTip v-if="help" :heading="title" :text="help" :label="`What the ${title} page shows`" tone="accent" />
+        <InfoTip v-if="help" :heading="title" :text="help" :label="$t('What the {title} page shows', { title })" tone="accent" />
       </h1>
       <p v-if="subtitle" class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">{{ subtitle }}</p>
     </div>
@@ -39,14 +40,14 @@ defineEmits(['refresh'])
       <span
         v-if="lastUpdated"
         class="hidden text-xs text-zinc-400 sm:inline dark:text-zinc-500"
-        title="When this page last received data from the AdminServer"
+        :title="$t('When this page last received data from the AdminServer')"
       >
-        Updated {{ new Date(lastUpdated).toLocaleTimeString() }}
+        {{ $t('Updated {time}', { time: new Date(lastUpdated).toLocaleTimeString() }) }}
       </span>
       <button
         class="btn btn-ghost"
         :disabled="refreshing"
-        title="Fetch the data on this page again now (auto-refresh is set in the top bar)"
+        :title="$t('Fetch the data on this page again now (auto-refresh is set in the top bar)')"
         @click="$emit('refresh')"
       >
         <svg
@@ -61,7 +62,7 @@ defineEmits(['refresh'])
           <path d="M21 12a9 9 0 1 1-2.64-6.36" />
           <path d="M21 3v6h-6" />
         </svg>
-        Refresh
+        {{ $t('Refresh') }}
       </button>
     </div>
   </header>

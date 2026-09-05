@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import * as api from '@/api/client'
+import { t } from '@/i18n'
 
 /**
  * Connection state mirrors the backend, which is the single source of truth.
@@ -25,7 +26,7 @@ export const useConnectionStore = defineStore('connection', {
       return Boolean(this.active)
     },
     domainName() {
-      return this.active?.domain?.name || 'WebLogic Domain'
+      return this.active?.domain?.name || t('WebLogic Domain')
     },
     /** The user-facing label: the profile name, falling back to host:port. */
     activeLabel() {

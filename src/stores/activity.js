@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import * as wls from '@/api/weblogic'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
+import { t } from '@/i18n'
 
 /**
  * What this console has changed, and how to put it back.
@@ -30,13 +31,14 @@ const RETENTION_KEY = 'wl-console.activity.retention'
 /** Fifteen minutes: long enough to notice a mistake, short enough to forget. */
 export const DEFAULT_RETENTION_MS = 15 * 60 * 1000
 
+/** Labels are thunks so they follow a language change — see REFRESH_OPTIONS. */
 export const RETENTION_OPTIONS = [
-  { label: '5 minutes', value: 5 * 60 * 1000 },
-  { label: '15 minutes', value: DEFAULT_RETENTION_MS },
-  { label: '30 minutes', value: 30 * 60 * 1000 },
-  { label: '1 hour', value: 60 * 60 * 1000 },
-  { label: '4 hours', value: 4 * 60 * 60 * 1000 },
-  { label: '12 hours', value: 12 * 60 * 60 * 1000 },
+  { label: () => t('5 minutes'), value: 5 * 60 * 1000 },
+  { label: () => t('15 minutes'), value: DEFAULT_RETENTION_MS },
+  { label: () => t('30 minutes'), value: 30 * 60 * 1000 },
+  { label: () => t('1 hour'), value: 60 * 60 * 1000 },
+  { label: () => t('4 hours'), value: 4 * 60 * 60 * 1000 },
+  { label: () => t('12 hours'), value: 12 * 60 * 60 * 1000 },
 ]
 
 const MIN_RETENTION_MS = 60 * 1000
@@ -108,8 +110,8 @@ export const useActivityStore = defineStore('activity', {
     revertible: () => (entry) => Boolean(entry?.undo) && entry.status === 'done',
 
     retentionLabel: (state) =>
-      RETENTION_OPTIONS.find((option) => option.value === state.retentionMs)?.label ||
-      `${Math.round(state.retentionMs / 60000)} minutes`,
+      RETENTION_OPTIONS.find((option) => option.value === state.retentionMs)?.label() ||
+      t('{count} minutes', { count: Math.round(state.retentionMs / 60000) }),
   },
 
   actions: {
@@ -215,7 +217,11 @@ export const useActivityStore = defineStore('activity', {
 
       const connection = useConnectionStore()
       if (entry.connectionId && entry.connectionId !== connection.activeId) {
-        throw new Error(`This change was made on ${entry.connectionLabel || 'another domain'}. Switch to it first.`)
+        throw new Error(
+          t('This change was made on {domain}. Switch to it first.', {
+            domain: entry.connectionLabel || t('another domain'),
+          }),
+        )
       }
 
       this.undoing = id
@@ -235,17 +241,17 @@ export const useActivityStore = defineStore('activity', {
         } else if (undo.type === 'deployment') {
           await wls.deploymentAction(undo.app, undo.action, undo.targets || [])
         } else {
-          throw new Error('This operation has no rollback.')
+          throw new Error(t('This operation has no rollback.'))
         }
 
         entry.status = 'rolled-back'
         entry.rolledBackAt = Date.now()
         this.record({
           kind: entry.kind,
-          title: `Rolled back — ${entry.title}`,
-          summary: undo.summary || 'The previous values were written back.',
+          title: t('Rolled back — {title}', { title: entry.title }),
+          summary: undo.summary || t('The previous values were written back.'),
           changes: invert(entry.changes),
-          undoNote: 'A rollback is not itself rolled back. Make the change again if it was wanted after all.',
+          undoNote: t('A rollback is not itself rolled back. Make the change again if it was wanted after all.'),
         })
       } finally {
         this.undoing = null

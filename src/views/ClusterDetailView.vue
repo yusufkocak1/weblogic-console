@@ -8,6 +8,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import FactList from '@/components/FactList.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import { t } from '@/i18n'
 
 /**
  * One cluster: who its members are, how they are doing, and the settings that
@@ -46,30 +47,36 @@ const sum = (field) => memberRuntimes.value.reduce((total, member) => total + Nu
 
 const facts = computed(() => [
   {
-    label: 'Alive',
+    label: t('Alive'),
     value: `${memberRuntimes.value[0]?.aliveServerCount ?? memberRuntimes.value.length} / ${members.value.length}`,
-    hint: 'Members that can currently see each other, against the number configured.',
+    hint: t('Members that can currently see each other, against the number configured.'),
   },
-  { label: 'Messaging', value: configured.value?.clusterMessagingMode || '—' },
+  { label: t('Messaging'), value: configured.value?.clusterMessagingMode || '—' },
   {
-    label: 'Address',
-    value: configured.value?.clusterAddress || (configured.value?.multicastAddress ? `${configured.value.multicastAddress}:${configured.value.multicastPort}` : '—'),
+    label: t('Address'),
+    value:
+      configured.value?.clusterAddress ||
+      (configured.value?.multicastAddress
+        ? `${configured.value.multicastAddress}:${configured.value.multicastPort}`
+        : '—'),
     mono: true,
   },
   {
-    label: 'Primary sessions',
+    label: t('Primary sessions'),
     value: num(sum('primaryCount')),
-    hint: 'Replicated HTTP sessions whose main copy lives on a member of this cluster.',
+    hint: t('Replicated HTTP sessions whose main copy lives on a member of this cluster.'),
   },
   {
-    label: 'Secondary sessions',
+    label: t('Secondary sessions'),
     value: num(sum('secondaryCount')),
-    hint: 'Backup copies held for other members, so a member can fail without logging users out.',
+    hint: t('Backup copies held for other members, so a member can fail without logging users out.'),
   },
   {
-    label: 'Resends',
+    label: t('Resends'),
     value: num(sum('resendRequestsCount')),
-    hint: 'Cluster messages that had to be sent again. A number that keeps climbing means members are losing each other’s messages — usually a network problem.',
+    hint: t(
+      'Cluster messages that had to be sent again. A number that keeps climbing means members are losing each other’s messages — usually a network problem.',
+    ),
   },
 ])
 </script>
@@ -78,20 +85,26 @@ const facts = computed(() => [
   <div>
     <PageHeader
       :title="name"
-      subtitle="Cluster membership, replication and settings"
+      :subtitle="$t('Cluster membership, replication and settings')"
       :back="{ name: 'clusters' }"
-      back-label="Clusters"
+      :back-label="$t('Clusters')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="One cluster: how many members are alive, how much session replication is going on, and the settings that decide how members find each other."
+      :help="
+        $t(
+          'One cluster: how many members are alive, how much session replication is going on, and the settings that decide how members find each other.',
+        )
+      "
       @refresh="reload"
     />
 
     <div v-if="missing" class="card p-6 text-sm text-zinc-500 dark:text-zinc-400">
-      This domain has no cluster called <span class="font-mono">{{ name }}</span
-      >. Go back to
-      <RouterLink :to="{ name: 'clusters' }" class="text-indigo-600 dark:text-indigo-400">Clusters</RouterLink> for the
-      current list.
+      {{ $t('This domain has no cluster called {name}.', { name }) }}
+      {{ $t('Go back to') }}
+      <RouterLink :to="{ name: 'clusters' }" class="text-indigo-600 dark:text-indigo-400">
+        {{ $t('Clusters') }}
+      </RouterLink>
+      {{ $t('for the current list.') }}
     </div>
 
     <template v-else>
@@ -100,7 +113,7 @@ const facts = computed(() => [
 
         <div v-if="members.length" class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
           <p class="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Members — click one to configure it
+            {{ $t('Members — click one to configure it') }}
           </p>
           <div class="flex flex-wrap gap-2">
             <RouterLink
@@ -119,7 +132,11 @@ const facts = computed(() => [
       <SettingsPanel
         :sections="['clusters']"
         :name="name"
-        intro="Membership belongs to each server rather than to the cluster, so it is changed on a server's own page. These settings decide how the members talk to each other and how they are addressed from outside."
+        :intro="
+          $t(
+            'Membership belongs to each server rather than to the cluster, so it is changed on a server\'s own page. These settings decide how the members talk to each other and how they are addressed from outside.',
+          )
+        "
       />
     </template>
   </div>

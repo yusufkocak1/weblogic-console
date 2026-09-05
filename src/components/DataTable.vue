@@ -11,14 +11,12 @@ const props = defineProps({
   rowKey: { type: [String, Function], default: 'name' },
   loading: { type: Boolean, default: false },
   error: { type: Object, default: null },
-  emptyText: { type: String, default: 'Nothing to show.' },
+  /** Empty falls back to a translated default at render time. */
+  emptyText: { type: String, default: '' },
   searchable: { type: Boolean, default: true },
-  searchPlaceholder: { type: String, default: 'Filter…' },
+  searchPlaceholder: { type: String, default: '' },
   /** Explains what the filter box matches on this particular table. */
-  searchHint: {
-    type: String,
-    default: 'Type to keep only the rows containing this text. It matches every column shown here and filters the rows already loaded — it does not query the server.',
-  },
+  searchHint: { type: String, default: '' },
   dense: { type: Boolean, default: false },
   /**
    * Puts the filter and the sort in the page's URL under this name, so the
@@ -140,9 +138,23 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
       class="flex flex-wrap items-center gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800"
     >
       <div v-if="searchable" class="relative max-w-xs flex-1">
-        <input v-model="query" class="input pl-8 pr-8" :placeholder="searchPlaceholder" type="search" />
+        <input
+          v-model="query"
+          class="input pl-8 pr-8"
+          :placeholder="searchPlaceholder || $t('Filter…')"
+          type="search"
+        />
         <span class="absolute right-2.5 top-2">
-          <InfoTip heading="Filter" :text="searchHint" label="How the filter box works" />
+          <InfoTip
+            :heading="$t('Filter')"
+            :text="
+              searchHint ||
+              $t(
+                'Type to keep only the rows containing this text. It matches every column shown here and filters the rows already loaded — it does not query the server.',
+              )
+            "
+            :label="$t('How the filter box works')"
+          />
         </span>
         <svg
           class="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-zinc-400"
@@ -160,21 +172,21 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
       <div v-if="exportName" class="flex items-center gap-1">
         <button
           class="btn btn-ghost px-2 py-1 text-xs"
-          title="Save the rows shown here as a CSV file — the filter and sort you have applied are kept"
+          :title="$t('Save the rows shown here as a CSV file — the filter and sort you have applied are kept')"
           @click="saveCsv"
         >
           CSV
         </button>
         <button
           class="btn btn-ghost px-2 py-1 text-xs"
-          title="Save the rows shown here as JSON, for a script or a diff"
+          :title="$t('Save the rows shown here as JSON, for a script or a diff')"
           @click="saveJson"
         >
           JSON
         </button>
       </div>
 
-      <span class="ml-auto text-xs text-zinc-400 dark:text-zinc-500" title="Rows shown / rows loaded">
+      <span class="ml-auto text-xs text-zinc-400 dark:text-zinc-500" :title="$t('Rows shown / rows loaded')">
         {{ sorted.length }}<template v-if="sorted.length !== rows.length"> / {{ rows.length }}</template>
       </span>
     </div>
@@ -190,8 +202,8 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
                 type="checkbox"
                 :checked="allSelected"
                 :indeterminate="someSelected"
-                :aria-label="allSelected ? 'Clear the selection' : 'Select every row shown'"
-                :title="allSelected ? 'Clear the selection' : 'Select every row the filter is showing'"
+                :aria-label="allSelected ? $t('Clear the selection') : $t('Select every row shown')"
+                :title="allSelected ? $t('Clear the selection') : $t('Select every row the filter is showing')"
                 @change="toggleAll"
               />
             </th>
@@ -204,7 +216,11 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
                 alignClass(column),
                 column.sortable !== false && 'cursor-pointer select-none hover:text-zinc-800 dark:hover:text-zinc-200',
               ]"
-              :title="column.sortable !== false && !column.hint ? `Click to sort by ${column.label}` : null"
+              :title="
+                column.sortable !== false && !column.hint
+                  ? $t('Click to sort by {column}', { column: column.label })
+                  : null
+              "
               @click="toggleSort(column)"
             >
               <span class="inline-flex items-center gap-1">
@@ -213,7 +229,7 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
                   v-if="column.hint"
                   :heading="column.label"
                   :text="column.hint"
-                  :label="`What the ${column.label} column shows`"
+                  :label="$t('What the {column} column shows', { column: column.label })"
                 />
               </span>
               <span v-if="sortKey === column.key" class="ml-0.5 text-[10px]">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -223,12 +239,12 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
         <tbody>
           <tr v-if="loading && !rows.length">
             <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-3 py-10 text-center text-sm text-zinc-400">
-              Loading…
+              {{ $t('Loading…') }}
             </td>
           </tr>
           <tr v-else-if="!sorted.length">
             <td :colspan="columns.length + (selectable ? 1 : 0)" class="px-3 py-10 text-center text-sm text-zinc-400">
-              {{ query ? 'No rows match this filter.' : emptyText }}
+              {{ query ? $t('No rows match this filter.') : emptyText || $t('Nothing to show.') }}
             </td>
           </tr>
           <template v-else>
@@ -244,7 +260,7 @@ const saveJson = () => downloadJson(props.exportName, exportColumns.value, sorte
                 <input
                   type="checkbox"
                   :checked="selectedSet.has(keyOf(row, index))"
-                  :aria-label="`Select ${keyOf(row, index)}`"
+                  :aria-label="$t('Select {name}', { name: keyOf(row, index) })"
                   @change="toggleRow(row, index)"
                 />
               </td>

@@ -5,6 +5,7 @@ import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
 import { useReconnect } from '@/composables/useReconnect'
 import PasswordPrompt from '@/components/PasswordPrompt.vue'
+import { t } from '@/i18n'
 
 const connection = useConnectionStore()
 const ui = useUiStore()
@@ -26,7 +27,7 @@ async function switchTo(id) {
   try {
     await connection.activate(id)
   } catch (err) {
-    ui.error('Could not switch connection', err.fullText || err.message)
+    ui.error(t('Could not switch connection'), err.fullText || err.message)
   }
 }
 
@@ -42,7 +43,7 @@ async function close(id, event) {
     await connection.close(id)
     if (wasLast) router.push({ name: 'login' })
   } catch (err) {
-    ui.error('Could not close connection', err.fullText || err.message)
+    ui.error(t('Could not close connection'), err.fullText || err.message)
   }
 }
 
@@ -58,7 +59,11 @@ function go(route) {
       class="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
       :aria-expanded="open"
       aria-haspopup="menu"
-      title="The domain every page is showing. Click to switch to another open AdminServer, add one, or manage saved connections."
+      :title="
+        $t(
+          'The domain every page is showing. Click to switch to another open AdminServer, add one, or manage saved connections.',
+        )
+      "
       @click="open = !open"
     >
       <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
@@ -66,7 +71,7 @@ function go(route) {
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          {{ connection.activeLabel || 'Not connected' }}
+          {{ connection.activeLabel || $t('Not connected') }}
         </span>
         <span class="block truncate text-xs text-zinc-500 dark:text-zinc-400">
           {{ connection.domainName }}<template v-if="connection.target"> · {{ connection.target }}</template>
@@ -98,7 +103,7 @@ function go(route) {
       >
         <div class="max-h-80 overflow-y-auto p-1">
           <p class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-            Connected
+            {{ $t('Connected') }}
           </p>
           <button
             v-for="item in connection.connections"
@@ -118,7 +123,7 @@ function go(route) {
             </span>
             <span
               class="rounded px-1 text-zinc-300 opacity-0 transition group-hover:opacity-100 hover:text-red-500 dark:text-zinc-600"
-              :title="`Close ${item.name}`"
+              :title="$t('Close {name}', { name: item.name })"
               @click="close(item.id, $event)"
             >
               &times;
@@ -127,7 +132,7 @@ function go(route) {
 
           <template v-if="connection.offlineProfiles.length">
             <p class="mt-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-              Saved
+              {{ $t('Saved') }}
             </p>
             <button
               v-for="profile in connection.offlineProfiles"
@@ -151,13 +156,13 @@ function go(route) {
             class="w-full rounded-lg px-2 py-1.5 text-left text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             @click="go({ name: 'login', query: { add: '1' } })"
           >
-            Add connection…
+            {{ $t('Add connection…') }}
           </button>
           <button
             class="w-full rounded-lg px-2 py-1.5 text-left text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             @click="go({ name: 'connections' })"
           >
-            Manage connections…
+            {{ $t('Manage connections…') }}
           </button>
         </div>
       </div>

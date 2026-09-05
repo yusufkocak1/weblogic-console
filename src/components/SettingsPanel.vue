@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import * as config from '@/api/config'
-import { IMPACTS, categoryByKey } from '@/settings/catalog'
+import { impacts, categoryByKey } from '@/settings/catalog'
 import { useActivityStore } from '@/stores/activity'
 import { useChangesStore } from '@/stores/changes'
 import { useConnectionStore } from '@/stores/connection'
@@ -13,6 +13,7 @@ import PendingChanges from '@/components/PendingChanges.vue'
 import SettingField from '@/components/SettingField.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import SnippetDialog from '@/components/SnippetDialog.vue'
+import { t } from '@/i18n'
 
 /**
  * The editable settings of one object, on that object's own page.
@@ -65,7 +66,7 @@ const lockedByOther = computed(
 function sessionGone(err) {
   if (!err?.isAuthError) return false
   connection.reset()
-  ui.error('Session ended', 'Connect to the AdminServer again.')
+  ui.error(t('Session ended'), t('Connect to the AdminServer again.'))
   router.push({ name: 'login', query: { redirect: route.fullPath } })
   return true
 }
@@ -168,8 +169,8 @@ const deferred = computed(() => changedFields.value.filter((field) => field.impa
 
 /** An edited value the way it should read in a sentence about it. */
 function display(value) {
-  if (value === null || value === undefined || value === '') return '(empty)'
-  if (typeof value === 'boolean') return value ? 'On' : 'Off'
+  if (value === null || value === undefined || value === '') return t('(empty)')
+  if (typeof value === 'boolean') return value ? t('On') : t('Off')
   return String(value)
 }
 
@@ -181,7 +182,7 @@ function display(value) {
 const changeList = computed(() =>
   changedFields.value.map((field) => ({
     label: field.label,
-    note: field.impact && field.impact !== 'live' ? IMPACTS[field.impact]?.label : '',
+    note: field.impact && field.impact !== 'live' ? impacts()[field.impact]?.label : '',
     from: display(field.from),
     to: display(field.to),
   })),
@@ -198,14 +199,16 @@ function revert() {
 const scriptFor = () => {
   const context = { username: connection.username, baseUrl: connection.baseUrl }
   return {
-    subtitle: changedFields.value.map((field) => `${field.label}: ${field.from ?? '(empty)'} → ${field.to ?? '(empty)'}`).join(' · '),
+    subtitle: changedFields.value
+      .map((field) => `${field.label}: ${field.from ?? t('(empty)')} → ${field.to ?? t('(empty)')}`)
+      .join(' · '),
     wlst: wlstForEdits(edits.value, context),
     curl: curlForEdits(edits.value, context),
   }
 }
 
 function showScript() {
-  snippet.value.show({ title: 'These changes as a script', ...scriptFor() })
+  snippet.value.show({ title: t('These changes as a script'), ...scriptFor() })
 }
 
 // -------------------------------------------------------------- navigation
@@ -214,11 +217,17 @@ function showScript() {
 async function confirmLeavingEdits() {
   if (!dirty.value) return true
   return confirm.value.ask({
-    title: 'Discard your unsaved edits?',
-    body: `${changedFields.value.length} field${changedFields.value.length === 1 ? '' : 's'} on this page ${
-      changedFields.value.length === 1 ? 'has' : 'have'
-    } been changed but not saved. Leaving loses those edits — nothing has reached the AdminServer yet.`,
-    confirmLabel: 'Discard edits',
+    title: t('Discard your unsaved edits?'),
+    body:
+      changedFields.value.length === 1
+        ? t(
+            '1 field on this page has been changed but not saved. Leaving loses that edit — nothing has reached the AdminServer yet.',
+          )
+        : t(
+            '{count} fields on this page have been changed but not saved. Leaving loses those edits — nothing has reached the AdminServer yet.',
+            { count: changedFields.value.length },
+          ),
+    confirmLabel: t('Discard edits'),
     danger: true,
   })
 }
@@ -239,7 +248,7 @@ onBeforeUnmount(() => {
 // ------------------------------------------------------------------ saving
 
 function describeDeferred() {
-  return [...new Set(deferred.value.map((field) => IMPACTS[field.impact]?.label).filter(Boolean))].join(', ')
+  return [...new Set(deferred.value.map((field) => impacts()[field.impact]?.label).filter(Boolean))].join(', ')
 }
 
 /** What this panel is configuring, as it should read in a sentence. */
@@ -271,21 +280,24 @@ function logChange({ fields, undoEdits }, { activated, error }) {
     path: field.__path,
     from: field.from,
     to: field.to,
-    note: field.impact && field.impact !== 'live' ? IMPACTS[field.impact]?.label : '',
+    note: field.impact && field.impact !== 'live' ? impacts()[field.impact]?.label : '',
   }))
   const count = fields.length
-  const title = `${count} setting${count === 1 ? '' : 's'} changed on ${subject()}`
+  const title =
+    count === 1
+      ? t('1 setting changed on {subject}', { subject: subject() })
+      : t('{count} settings changed on {subject}', { count, subject: subject() })
 
   if (error) {
     activity.record({
       kind: 'config',
-      title: `Failed — ${title}`,
+      title: t('Failed — {title}', { title }),
       summary: error.fullText || error.message,
       changes,
       status: 'failed',
-      undoNote:
-        'Nothing is offered to roll back, because it is not certain how much of this reached the AdminServer. ' +
-        'The pending changes bar shows what is actually waiting.',
+      undoNote: t(
+        'Nothing is offered to roll back, because it is not certain how much of this reached the AdminServer. The pending changes bar shows what is actually waiting.',
+      ),
     })
     return
   }
@@ -294,20 +306,24 @@ function logChange({ fields, undoEdits }, { activated, error }) {
     kind: 'config',
     title,
     summary: activated
-      ? 'Saved and activated — the running domain is using the new values.'
-      : 'Saved as pending changes; not activated yet.',
+      ? t('Saved and activated — the running domain is using the new values.')
+      : t('Saved as pending changes; not activated yet.'),
     changes,
     undo: {
       type: 'config',
       edits: undoEdits,
       activate: activated,
       summary: activated
-        ? 'The previous values were written back and activated.'
-        : 'The previous values were written back into the pending changes.',
+        ? t('The previous values were written back and activated.')
+        : t('The previous values were written back into the pending changes.'),
       body: activated
-        ? 'The old values are written back through the same staged edit and activated, so the domain ends up where it started.'
-        : 'The old values are written back into the pending changes, which still have to be activated or discarded.',
-      hint: 'Write the previous values back',
+        ? t(
+            'The old values are written back through the same staged edit and activated, so the domain ends up where it started.',
+          )
+        : t(
+            'The old values are written back into the pending changes, which still have to be activated or discarded.',
+          ),
+      hint: t('Write the previous values back'),
     },
   })
 }
@@ -322,23 +338,29 @@ async function save({ activate }) {
   const ok = await confirm.value.ask(
     activate
       ? {
-          title: `Apply ${count} change${count === 1 ? '' : 's'} to the domain?`,
+          title:
+            count === 1
+              ? t('Apply 1 change to the domain?')
+              : t('Apply {count} changes to the domain?', { count }),
           body:
             (deferredCount
-              ? `${deferredCount} of these only take effect later (${deferredKinds}).`
-              : 'These take effect on the running domain immediately.') +
-            (connection.productionMode ? ' This domain runs in production mode.' : ''),
-          confirmLabel: 'Save and activate',
+              ? t('{count} of these only take effect later ({kinds}).', {
+                  count: deferredCount,
+                  kinds: deferredKinds,
+                })
+              : t('These take effect on the running domain immediately.')) +
+            (connection.productionMode ? ' ' + t('This domain runs in production mode.') : ''),
+          confirmLabel: t('Save and activate'),
           danger: connection.productionMode,
           changes: changeList.value,
           script: scriptFor(),
         }
       : {
-          title: `Save ${count} change${count === 1 ? '' : 's'} for later?`,
-          body:
-            'These are written to the AdminServer as pending changes and hold the domain lock until they are ' +
-            'activated or discarded. The running domain keeps its current values until then.',
-          confirmLabel: 'Save for later',
+          title: count === 1 ? t('Save 1 change for later?') : t('Save {count} changes for later?', { count }),
+          body: t(
+            'These are written to the AdminServer as pending changes and hold the domain lock until they are activated or discarded. The running domain keeps its current values until then.',
+          ),
+          confirmLabel: t('Save for later'),
           changes: changeList.value,
           script: scriptFor(),
         },
@@ -355,16 +377,16 @@ async function save({ activate }) {
     await changes.save(pending)
     if (!activate) {
       ui.success(
-        'Saved as pending changes',
-        'Nothing is live yet — press Activate changes at the top of the page to apply them.',
+        t('Saved as pending changes'),
+        t('Nothing is live yet — press Activate changes at the top of the page to apply them.'),
       )
     }
   } catch (err) {
     if (!sessionGone(err)) {
       logChange(record, { activated: false, error: err })
       ui.error(
-        'Could not save the changes',
-        `${err.fullText || err.message} — anything saved before the failure is still waiting in the pending changes.`,
+        t('Could not save the changes'),
+        `${err.fullText || err.message} — ${t('anything saved before the failure is still waiting in the pending changes.')}`,
       )
       saving.value = false
       await load()
@@ -378,13 +400,13 @@ async function save({ activate }) {
       await changes.activate()
       activated = true
       ui.success(
-        'Changes activated',
+        t('Changes activated'),
         deferredCount
-          ? `${deferredCount} of them wait for a restart or redeploy before they do anything.`
-          : 'The running domain is using the new values.',
+          ? t('{count} of them wait for a restart or redeploy before they do anything.', { count: deferredCount })
+          : t('The running domain is using the new values.'),
       )
     } catch (err) {
-      ui.error('Saved, but activating failed', err.fullText || err.message)
+      ui.error(t('Saved, but activating failed'), err.fullText || err.message)
     }
   }
 
@@ -396,31 +418,37 @@ async function save({ activate }) {
 
 async function activatePending() {
   const ok = await confirm.value.ask({
-    title: 'Activate the pending changes?',
-    body: 'Everything currently waiting is applied to the running domain, including changes made on another page or by another tool.',
-    confirmLabel: 'Activate',
+    title: t('Activate the pending changes?'),
+    body: t(
+      'Everything currently waiting is applied to the running domain, including changes made on another page or by another tool.',
+    ),
+    confirmLabel: t('Activate'),
     danger: connection.productionMode,
   })
   if (!ok) return
   // Read before activating: activating empties the pending set, and the whole
   // point of the entry is to say what was in it.
-  const applied = changes.pending.map((change) => ({ label: change.text, from: 'pending', to: change.detail || 'applied' }))
+  const applied = changes.pending.map((change) => ({
+    label: change.text,
+    from: t('pending'),
+    to: change.detail || t('applied'),
+  }))
   try {
     await changes.activate()
     activity.record({
       kind: 'lock',
-      title: `Pending changes activated on ${subject()}`,
-      summary:
-        'Everything that was waiting is now live, including changes made on another page or by another tool. ' +
-        'Only the edits this console made are listed here.',
+      title: t('Pending changes activated on {subject}', { subject: subject() }),
+      summary: t(
+        'Everything that was waiting is now live, including changes made on another page or by another tool. Only the edits this console made are listed here.',
+      ),
       changes: applied,
-      undoNote:
-        'Activating is not undone as one operation. Roll back the individual changes above, or edit the ' +
-        'settings back by hand.',
+      undoNote: t(
+        'Activating is not undone as one operation. Roll back the individual changes above, or edit the settings back by hand.',
+      ),
     })
-    ui.success('Changes activated', 'The running domain is using the new values.')
+    ui.success(t('Changes activated'), t('The running domain is using the new values.'))
   } catch (err) {
-    ui.error('Could not activate the changes', err.fullText || err.message)
+    ui.error(t('Could not activate the changes'), err.fullText || err.message)
   }
   await load()
 }
@@ -428,29 +456,33 @@ async function activatePending() {
 async function discardPending() {
   const hadChanges = changes.hasChanges
   const ok = await confirm.value.ask({
-    title: hadChanges ? 'Discard the pending changes?' : 'Release the configuration lock?',
+    title: hadChanges ? t('Discard the pending changes?') : t('Release the configuration lock?'),
     body: hadChanges
-      ? 'Everything waiting to be activated is thrown away and the domain keeps the values it is running with.'
-      : 'The lock is released so another operator can edit the domain.',
-    confirmLabel: hadChanges ? 'Discard' : 'Release',
+      ? t('Everything waiting to be activated is thrown away and the domain keeps the values it is running with.')
+      : t('The lock is released so another operator can edit the domain.'),
+    confirmLabel: hadChanges ? t('Discard') : t('Release'),
     danger: hadChanges,
   })
   if (!ok) return
-  const discarded = changes.pending.map((change) => ({ label: change.text, from: change.detail || 'pending', to: '(discarded)' }))
+  const discarded = changes.pending.map((change) => ({
+    label: change.text,
+    from: change.detail || t('pending'),
+    to: t('(discarded)'),
+  }))
   try {
     await changes.discard()
     if (hadChanges) {
       activity.record({
         kind: 'lock',
-        title: `Pending changes discarded on ${subject()}`,
-        summary: 'Nothing reached the running domain, which keeps the values it was already using.',
+        title: t('Pending changes discarded on {subject}', { subject: subject() }),
+        summary: t('Nothing reached the running domain, which keeps the values it was already using.'),
         changes: discarded,
-        undoNote: 'Discarded edits are gone from the AdminServer. Make them again if they were wanted.',
+        undoNote: t('Discarded edits are gone from the AdminServer. Make them again if they were wanted.'),
       })
     }
-    ui.info(hadChanges ? 'Pending changes discarded' : 'Lock released')
+    ui.info(hadChanges ? t('Pending changes discarded') : t('Lock released'))
   } catch (err) {
-    ui.error('Could not discard the changes', err.fullText || err.message)
+    ui.error(t('Could not discard the changes'), err.fullText || err.message)
   }
   await load()
 }
@@ -484,29 +516,43 @@ load()
 
 <template>
   <section class="pb-24">
-    <HelpPanel id="settings" title="How changing a setting works">
+    <HelpPanel id="settings" :title="$t('How changing a setting works')">
       <ol class="list-decimal space-y-1 pl-4">
         <li>
-          Change the fields you need. An edited field is outlined and shows what the AdminServer currently holds, so
-          you can always see what you are about to change.
+          {{
+            $t(
+              'Change the fields you need. An edited field is outlined and shows what the AdminServer currently holds, so you can always see what you are about to change.',
+            )
+          }}
         </li>
         <li>
-          Press <strong>Save and activate</strong> to apply them, or <strong>Save for later</strong> to stage them and
-          activate several edits together.
+          {{
+            $t(
+              'Press Save and activate to apply them, or Save for later to stage them and activate several edits together.',
+            )
+          }}
         </li>
         <li>
-          Every field says when it takes effect. <strong>Live on activate</strong> works immediately;
-          <strong>Needs a restart</strong> means the running server keeps its old value until it is restarted.
+          {{
+            $t(
+              'Every field says when it takes effect. Live on activate works immediately; Needs a restart means the running server keeps its old value until it is restarted.',
+            )
+          }}
         </li>
       </ol>
       <p>
-        WebLogic allows one editor per domain at a time. While you hold that lock nobody else can change the
-        configuration, so activate or discard rather than leaving edits open.
+        {{
+          $t(
+            'WebLogic allows one editor per domain at a time. While you hold that lock nobody else can change the configuration, so activate or discard rather than leaving edits open.',
+          )
+        }}
       </p>
       <p>
-        <strong>Show script</strong> writes the pending edits out as WLST and as the REST calls this console makes —
-        worth a glance before changing a production domain, and worth keeping afterwards as the record of what was
-        changed.
+        {{
+          $t(
+            'Show script writes the pending edits out as WLST and as the REST calls this console makes — worth a glance before changing a production domain, and worth keeping afterwards as the record of what was changed.',
+          )
+        }}
       </p>
     </HelpPanel>
 
@@ -515,7 +561,7 @@ load()
     <p v-if="intro" class="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{{ intro }}</p>
 
     <div v-if="loading && !groups.length" class="card p-6 text-sm text-zinc-500 dark:text-zinc-400">
-      Reading the configuration…
+      {{ $t('Reading the configuration…') }}
     </div>
 
     <div v-else class="space-y-6">
@@ -537,7 +583,8 @@ load()
             v-if="group.error"
             class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
           >
-            These settings could not be read from this domain — {{ group.error.fullText || group.error.message }}
+            {{ $t('These settings could not be read from this domain —') }}
+            {{ group.error.fullText || group.error.message }}
           </p>
 
           <div v-else class="mt-4 grid gap-x-6 gap-y-5 sm:grid-cols-2">
@@ -566,7 +613,11 @@ load()
         <div class="card flex max-w-3xl flex-wrap items-center gap-3 p-3 shadow-lg">
           <div class="min-w-0">
             <p class="text-sm font-medium text-zinc-900 dark:text-zinc-50">
-              {{ changedFields.length }} unsaved edit{{ changedFields.length === 1 ? '' : 's' }}
+              {{
+                changedFields.length === 1
+                  ? $t('1 unsaved edit')
+                  : $t('{count} unsaved edits', { count: changedFields.length })
+              }}
             </p>
             <p class="truncate text-xs text-zinc-500 dark:text-zinc-400">
               {{ changedFields.map((field) => field.label).join(', ') }}
@@ -576,34 +627,42 @@ load()
             <button
               class="btn btn-ghost"
               :disabled="saving"
-              title="Show these edits as a WLST script and as the REST calls the console makes — to check before saving, or to keep as a record"
+              :title="
+                $t(
+                  'Show these edits as a WLST script and as the REST calls the console makes — to check before saving, or to keep as a record',
+                )
+              "
               @click="showScript"
             >
-              Show script
+              {{ $t('Show script') }}
             </button>
             <button
               class="btn btn-ghost"
               :disabled="saving"
-              title="Put every field back to the value the AdminServer holds."
+              :title="$t('Put every field back to the value the AdminServer holds.')"
               @click="revert"
             >
-              Undo edits
+              {{ $t('Undo edits') }}
             </button>
             <button
               class="btn btn-ghost"
               :disabled="saving || lockedByOther"
-              title="Stage these changes on the AdminServer without applying them. They stay pending until you activate them."
+              :title="
+                $t(
+                  'Stage these changes on the AdminServer without applying them. They stay pending until you activate them.',
+                )
+              "
               @click="save({ activate: false })"
             >
-              Save for later
+              {{ $t('Save for later') }}
             </button>
             <button
               class="btn btn-primary"
               :disabled="saving || lockedByOther"
-              title="Stage these changes and apply them to the running domain."
+              :title="$t('Stage these changes and apply them to the running domain.')"
               @click="save({ activate: true })"
             >
-              {{ saving ? 'Saving…' : 'Save and activate' }}
+              {{ saving ? $t('Saving…') : $t('Save and activate') }}
             </button>
           </div>
         </div>

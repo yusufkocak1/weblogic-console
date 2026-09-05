@@ -6,6 +6,8 @@
  * carries nothing but an httpOnly session cookie.
  */
 
+import { t } from '@/i18n'
+
 export const API_BASE = '/api'
 export const WLS_BASE = '/api/wls'
 
@@ -64,14 +66,14 @@ function describeError(status, payload, path) {
     payload?.title ||
     messages[0] ||
     payload?.detail ||
-    (status === 401 ? 'Not connected' : `Request failed with status ${status}`)
+    (status === 401 ? t('Not connected') : t('Request failed with status {status}', { status }))
   const detail = payload?.detail && payload.detail !== title ? payload.detail : ''
   return new WlsError(title, { status, detail, messages, path })
 }
 
 async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, headers = {}, form } = {}) {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(new WlsError('Request timed out', { path: url })), timeoutMs)
+  const timer = setTimeout(() => controller.abort(new WlsError(t('Request timed out'), { path: url })), timeoutMs)
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason)
     else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
@@ -97,7 +99,7 @@ async function send(url, { method = 'GET', body, signal, timeoutMs = 60000, head
     clearTimeout(timer)
     if (err instanceof WlsError) throw err
     if (err?.name === 'AbortError') throw err
-    throw new WlsError('The console backend is not responding', {
+    throw new WlsError(t('The console backend is not responding'), {
       detail: 'Make sure the local server is running (npm run dev).',
       path: url,
     })

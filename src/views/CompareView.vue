@@ -1,15 +1,19 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import * as wls from '@/api/weblogic'
+import { describeAttribute } from '@/settings/catalog'
 import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
 import { items, targetNames } from '@/utils/format'
 import { download, timestampedName } from '@/utils/export'
+import { compareResources, resourceProfile } from '@/utils/resources'
 import PageHeader from '@/components/PageHeader.vue'
 import StatCard from '@/components/StatCard.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import InfoTip from '@/components/InfoTip.vue'
+import CompareResources from '@/components/CompareResources.vue'
+import { t } from '@/i18n'
 
 /**
  * Two domains, side by side.
@@ -18,6 +22,14 @@ import InfoTip from '@/components/InfoTip.vue'
  * it normally means opening two consoles and comparing by eye. Because this
  * console already holds several connections at once and pins every request to
  * one of them, the same read can be done against both domains and subtracted.
+ *
+ * The page answers two questions, and keeps them apart because they are acted
+ * on differently. What is *set* differently is the attribute diff further down:
+ * ports, targets, staging modes, flags. How *much* each side has — heap,
+ * metaspace, pool sizes, thread ceilings — is the Resources section, where the
+ * values are normalised to numbers first, because -Xmx2g and -Xmx2048m are the
+ * same heap and a domain that is simply smaller does not show up as a list of
+ * mismatched strings.
  *
  * Nothing here writes: it answers what differs, and leaves fixing it to the
  * page for the object concerned.
@@ -69,13 +81,28 @@ function flatten(node, prefix = '', out = {}) {
   return out
 }
 
-const CATEGORIES = [
-  { key: 'servers', label: 'Servers', route: 'server-detail' },
-  { key: 'clusters', label: 'Clusters', route: 'cluster-detail' },
-  { key: 'JDBCSystemResources', label: 'Data sources', route: 'data-source-detail' },
-  { key: 'appDeployments', label: 'Applications', route: 'deployment-detail' },
-  { key: 'libraries', label: 'Shared libraries', route: null },
-  { key: 'machines', label: 'Machines', route: null },
+/**
+ * `catalog` names the settings categories that describe this kind of object, so
+ * a difference can be reported as "Maximum connections" rather than as
+ * JDBCResource.JDBCConnectionPoolParams.maxCapacity. A server needs two of
+ * them, because its log settings live in their own category.
+ */
+const categories = () => [
+  {
+    key: 'servers',
+    label: t('Servers'),
+    route: 'server-detail',
+    catalog: ['servers', 'logging'],
+    // The JVM command line is compared argument by argument under Resources,
+    // where -Xmx2g and -Xmx2048m count as the same heap. Repeating the raw line
+    // here would be a very long string that says less.
+    skip: ['serverStart.arguments'],
+  },
+  { key: 'clusters', label: t('Clusters'), route: 'cluster-detail', catalog: ['clusters'] },
+  { key: 'JDBCSystemResources', label: t('Data sources'), route: 'data-source-detail', catalog: ['data-sources'] },
+  { key: 'appDeployments', label: t('Applications'), route: 'deployment-detail', catalog: ['deployments'] },
+  { key: 'libraries', label: t('Shared libraries'), route: null, catalog: [] },
+  { key: 'machines', label: t('Machines'), route: null, catalog: [] },
 ]
 
 function indexOf(snapshot, key) {
@@ -86,22 +113,43 @@ function indexOf(snapshot, key) {
   return map
 }
 
-function diffMaps(a, b) {
+function diffMaps(a, b, { catalog = [], skip = [] } = {}) {
+  const ignored = new Set(['name', ...skip])
   const differences = []
   for (const attribute of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    if (attribute === 'name') continue
+    if (ignored.has(attribute)) continue
     const leftValue = a[attribute] ?? ''
     const rightValue = b[attribute] ?? ''
-    if (leftValue !== rightValue) differences.push({ attribute, left: leftValue, right: rightValue })
+    if (leftValue === rightValue) continue
+    const described = describeAttribute(catalog, attribute)
+    differences.push({
+      attribute,
+      label: described?.label || '',
+      help: described?.help || '',
+      unit: described?.unit || '',
+      left: leftValue,
+      right: rightValue,
+    })
   }
-  return differences.sort((x, y) => x.attribute.localeCompare(y.attribute))
+  return differences.sort((x, y) => (x.label || x.attribute).localeCompare(y.label || y.attribute))
+}
+
+/** The attributes that are not carved up into per-object sections. */
+const DOMAIN_CHILDREN = {
+  servers: undefined,
+  clusters: undefined,
+  JDBCSystemResources: undefined,
+  appDeployments: undefined,
+  libraries: undefined,
+  machines: undefined,
 }
 
 const report = computed(() => {
   if (!snapshots.value) return null
-  const [a, b] = snapshots.value
+  const a = snapshots.value[0].config
+  const b = snapshots.value[1].config
 
-  const sections = CATEGORIES.map((category) => {
+  const sections = categories().map((category) => {
     const leftIndex = indexOf(a, category.key)
     const rightIndex = indexOf(b, category.key)
     const onlyLeft = [...leftIndex.keys()].filter((name) => !rightIndex.has(name)).sort()
@@ -110,7 +158,7 @@ const report = computed(() => {
     let same = 0
     for (const [name, values] of leftIndex) {
       if (!rightIndex.has(name)) continue
-      const differences = diffMaps(values, rightIndex.get(name))
+      const differences = diffMaps(values, rightIndex.get(name), category)
       if (differences.length) changed.push({ name, differences })
       else same += 1
     }
@@ -119,8 +167,9 @@ const report = computed(() => {
 
   // The domain's own attributes, minus the ones that are meant to differ.
   const domainDifferences = diffMaps(
-    flatten({ ...a, servers: undefined, clusters: undefined, JDBCSystemResources: undefined, appDeployments: undefined, libraries: undefined, machines: undefined }),
-    flatten({ ...b, servers: undefined, clusters: undefined, JDBCSystemResources: undefined, appDeployments: undefined, libraries: undefined, machines: undefined }),
+    flatten({ ...a, ...DOMAIN_CHILDREN }),
+    flatten({ ...b, ...DOMAIN_CHILDREN }),
+    { catalog: ['domain'] },
   ).filter((difference) => !difference.attribute.includes('.'))
 
   const totals = sections.reduce(
@@ -136,16 +185,49 @@ const report = computed(() => {
   return { sections, domainDifferences, totals }
 })
 
+/** The same two domains measured rather than diffed: how much each one has. */
+const resources = computed(() => {
+  if (!snapshots.value) return null
+  const [a, b] = snapshots.value
+  return compareResources(
+    resourceProfile(a.config, a.runtime, a.tuning),
+    resourceProfile(b.config, b.runtime, b.tuning),
+  )
+})
+
+/** A side whose running servers could not be read compares configuration only. */
+const withoutLiveAmounts = computed(() => {
+  if (!snapshots.value) return []
+  return [
+    [snapshots.value[0], left.value],
+    [snapshots.value[1], right.value],
+  ]
+    .filter(([side]) => !side.runtime)
+    .map(([, id]) => nameOf(id))
+})
+
+/**
+ * Everything one domain contributes to the comparison. The configuration is the
+ * part that must succeed; the running JVMs and the self-tuning tree are extras,
+ * so a server that is down or a release without `selfTuning` costs those rows
+ * rather than the whole page.
+ */
+async function readSide(connectionId) {
+  const [config, runtime, tuning] = await Promise.all([
+    wls.configSnapshot({ connectionId }),
+    wls.runtimeSnapshot({ connectionId }).catch(() => null),
+    wls.tuningSnapshot({ connectionId }).catch(() => null),
+  ])
+  return { config, runtime, tuning }
+}
+
 async function compare() {
   if (!left.value || !right.value || left.value === right.value) return
   loading.value = true
   error.value = null
   try {
     // Each read is pinned to its own connection, so the two never cross.
-    snapshots.value = await Promise.all([
-      wls.configSnapshot({ connectionId: left.value }),
-      wls.configSnapshot({ connectionId: right.value }),
-    ])
+    snapshots.value = await Promise.all([readSide(left.value), readSide(right.value)])
     comparedAt.value = Date.now()
   } catch (err) {
     error.value = err
@@ -167,13 +249,19 @@ function save() {
   download(
     timestampedName('domain-comparison', 'json'),
     JSON.stringify(
-      { left: nameOf(left.value), right: nameOf(right.value), comparedAt: comparedAt.value, ...report.value },
+      {
+        left: nameOf(left.value),
+        right: nameOf(right.value),
+        comparedAt: comparedAt.value,
+        ...report.value,
+        resources: resources.value,
+      },
       null,
       2,
     ),
     'application/json;charset=utf-8',
   )
-  ui.success('Comparison saved', 'The full difference report has been downloaded as JSON.')
+  ui.success(t('Comparison saved'), t('The full difference report has been downloaded as JSON.'))
 }
 
 const canCompare = computed(() => left.value && right.value && left.value !== right.value)
@@ -183,52 +271,95 @@ const enoughConnections = computed(() => connection.connections.length > 1)
 <template>
   <div>
     <PageHeader
-      title="Compare domains"
-      subtitle="What differs between two open domains"
+      :title="$t('Compare domains')"
+      :subtitle="$t('What differs between two open domains')"
       :last-updated="comparedAt"
       :refreshing="loading"
-      help="Reads the configuration of two domains you have open and subtracts one from the other: what exists on one side only, and where the same object is set up differently. Nothing is changed by comparing."
+      :help="
+        $t(
+          'Reads the configuration of two domains you have open and subtracts one from the other: what exists on one side only, where the same object is set up differently, and how much memory, threads and connections each side is given. Nothing is changed by comparing.',
+        )
+      "
       @refresh="compare"
     >
       <template #actions>
         <button
           v-if="report"
           class="btn btn-ghost"
-          title="Download the whole comparison as JSON, for a ticket or a review"
+          :title="$t('Download the whole comparison as JSON, for a ticket or a review')"
           @click="save"
         >
-          Save report
+          {{ $t('Save report') }}
         </button>
       </template>
     </PageHeader>
 
-    <HelpPanel id="compare" title="How to use this when something works in one environment and not the other">
+    <HelpPanel
+      id="compare"
+      :title="$t('How to use this when something works in one environment and not the other')"
+    >
       <ol class="list-decimal space-y-1 pl-4">
-        <li>Open both domains — the connection switcher at the top of the sidebar adds a second one.</li>
-        <li>Pick them below, left and right, and press <strong>Compare</strong>.</li>
+        <li>{{ $t('Open both domains — the connection switcher at the top of the sidebar adds a second one.') }}</li>
+        <li>{{ $t('Pick them below, left and right, and press Compare.') }}</li>
         <li>
-          Read <strong>Only in</strong> first: a data source or an application that exists on one side and not the
-          other explains most "works in test" reports on its own.
+          {{
+            $t(
+              'Read Only in first: a data source or an application that exists on one side and not the other explains most works-in-test reports on its own.',
+            )
+          }}
         </li>
         <li>
-          Then read the changed objects. Pool sizes, listen ports, timeouts and targets are where domains drift
-          fastest.
+          {{
+            $t(
+              'Then read Resources. It is where "the same application is slower there" usually ends: half the heap, a smaller connection pool, a different garbage collector, a work manager ceiling that only one side has.',
+            )
+          }}
+        </li>
+        <li>
+          {{
+            $t(
+              'Then read the changed objects. Pool sizes, listen ports, timeouts and targets are where domains drift fastest.',
+            )
+          }}
         </li>
       </ol>
-      <p>Both sides are read with the credentials of their own connection, so a Monitor account is enough for this page.</p>
+      <p>
+        {{
+          $t(
+            'Heap and metaspace are read from the JVM arguments Node Manager passes to each server, next to what the running JVM reports. A server started from a shell script instead takes its sizes from that script, and then only the running value is the true one.',
+          )
+        }}
+      </p>
+      <p>
+        {{
+          $t(
+            'Both sides are read with the credentials of their own connection, so a Monitor account is enough for this page.',
+          )
+        }}
+      </p>
     </HelpPanel>
 
     <div v-if="!enoughConnections" class="card p-6 text-sm text-zinc-600 dark:text-zinc-300">
-      Comparing needs two domains open at once. Use the connection switcher at the top of the sidebar to connect to a
-      second AdminServer — production and test, say — and this page will compare them.
+      {{
+        $t(
+          'Comparing needs two domains open at once. Use the connection switcher at the top of the sidebar to connect to a second AdminServer — production and test, say — and this page will compare them.',
+        )
+      }}
     </div>
 
     <template v-else>
       <div class="card mb-4 flex flex-wrap items-end gap-3 p-3">
         <div class="min-w-48 flex-1">
           <label class="label-row" for="compare-left">
-            Left
-            <InfoTip heading="Left" text="The domain treated as the baseline. Differences are described as left versus right; swapping them changes nothing but the reading order." />
+            {{ $t('Left') }}
+            <InfoTip
+              :heading="$t('Left')"
+              :text="
+                $t(
+                  'The domain treated as the baseline. Differences are described as left versus right; swapping them changes nothing but the reading order.',
+                )
+              "
+            />
           </label>
           <select id="compare-left" v-model="left" class="input">
             <option v-for="entry in connection.connections" :key="entry.id" :value="entry.id">
@@ -236,11 +367,11 @@ const enoughConnections = computed(() => connection.connections.length > 1)
             </option>
           </select>
         </div>
-        <button class="btn btn-ghost" title="Swap the two sides" @click="swap">⇄</button>
+        <button class="btn btn-ghost" :title="$t('Swap the two sides')" @click="swap">⇄</button>
         <div class="min-w-48 flex-1">
           <label class="label-row" for="compare-right">
-            Right
-            <InfoTip heading="Right" text="The domain compared against the baseline." />
+            {{ $t('Right') }}
+            <InfoTip :heading="$t('Right')" :text="$t('The domain compared against the baseline.')" />
           </label>
           <select id="compare-right" v-model="right" class="input">
             <option v-for="entry in connection.connections" :key="entry.id" :value="entry.id">
@@ -249,57 +380,89 @@ const enoughConnections = computed(() => connection.connections.length > 1)
           </select>
         </div>
         <button class="btn btn-primary" :disabled="!canCompare || loading" @click="compare">
-          {{ loading ? 'Reading both domains…' : 'Compare' }}
+          {{ loading ? $t('Reading both domains…') : $t('Compare') }}
         </button>
       </div>
 
       <p v-if="left === right" class="mb-4 text-sm text-amber-600 dark:text-amber-400">
-        Pick two different domains — comparing one with itself has nothing to show.
+        {{ $t('Pick two different domains — comparing one with itself has nothing to show.') }}
       </p>
 
-      <ErrorState v-if="error" :error="error" title="Could not read both domains" @retry="compare" />
+      <ErrorState v-if="error" :error="error" :title="$t('Could not read both domains')" @retry="compare" />
 
       <template v-else-if="report">
-        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard
-            :label="`Only in ${nameOf(left)}`"
+            :label="$t('Only in {domain}', { domain: nameOf(left) })"
             :value="report.totals.onlyLeft"
             :tone="report.totals.onlyLeft ? 'warn' : 'good'"
-            info="Objects that exist on the left and have no counterpart on the right."
+            :info="$t('Objects that exist on the left and have no counterpart on the right.')"
           />
           <StatCard
-            :label="`Only in ${nameOf(right)}`"
+            :label="$t('Only in {domain}', { domain: nameOf(right) })"
             :value="report.totals.onlyRight"
             :tone="report.totals.onlyRight ? 'warn' : 'good'"
-            info="Objects that exist on the right and have no counterpart on the left."
+            :info="$t('Objects that exist on the right and have no counterpart on the left.')"
           />
           <StatCard
-            label="Configured differently"
+            :label="$t('Configured differently')"
             :value="report.totals.changed"
             :tone="report.totals.changed ? 'warn' : 'good'"
-            info="Objects with the same name on both sides but at least one attribute that differs."
+            :info="$t('Objects with the same name on both sides but at least one attribute that differs.')"
           />
           <StatCard
-            label="Identical"
+            :label="$t('Sized differently')"
+            :value="resources ? resources.differing : 0"
+            :tone="resources && resources.differing ? 'warn' : 'good'"
+            :info="
+              $t(
+                'Amounts that differ: heap, metaspace, pool sizes, thread ceilings and the totals across the domain. Listed under Resources.',
+              )
+            "
+          />
+          <StatCard
+            :label="$t('Identical')"
             :value="report.totals.same"
             tone="good"
-            info="Objects that match on every attribute compared."
+            :info="$t('Objects that match on every attribute compared.')"
           />
         </div>
 
+        <CompareResources
+          v-if="resources"
+          :groups="resources.groups"
+          :left-name="nameOf(left)"
+          :right-name="nameOf(right)"
+        />
+
+        <p v-if="withoutLiveAmounts.length" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          {{
+            $t(
+              'The running JVMs of {domains} could not be read, so only its configured amounts are compared. Servers that are down report nothing.',
+              { domains: withoutLiveAmounts.join(', ') },
+            )
+          }}
+        </p>
+
         <section v-if="report.domainDifferences.length" class="card mt-4 p-4">
-          <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Domain</h2>
+          <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ $t('Domain') }}</h2>
           <table class="mt-2 w-full text-sm">
             <thead>
               <tr class="text-left text-xs uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                <th class="py-1 pr-3 font-semibold">Attribute</th>
+                <th class="py-1 pr-3 font-semibold">{{ $t('Attribute') }}</th>
                 <th class="py-1 pr-3 font-semibold">{{ nameOf(left) }}</th>
                 <th class="py-1 font-semibold">{{ nameOf(right) }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="difference in report.domainDifferences" :key="difference.attribute" class="border-t border-zinc-100 dark:border-zinc-800">
-                <td class="py-1.5 pr-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ difference.attribute }}</td>
+                <td class="py-1.5 pr-3">
+                  <span v-if="difference.label" class="flex items-center gap-1.5 text-zinc-800 dark:text-zinc-100">
+                    {{ difference.label }}
+                    <InfoTip v-if="difference.help" :heading="difference.label" :text="difference.help" />
+                  </span>
+                  <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ difference.attribute }}</span>
+                </td>
                 <td class="py-1.5 pr-3 break-all">{{ difference.left || '—' }}</td>
                 <td class="py-1.5 break-all">{{ difference.right || '—' }}</td>
               </tr>
@@ -310,7 +473,7 @@ const enoughConnections = computed(() => connection.connections.length > 1)
         <div class="mt-4 flex items-center gap-2">
           <label class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
             <input v-model="showSame" type="checkbox" />
-            Also list the sections where everything matches
+            {{ $t('Also list the sections where everything matches') }}
           </label>
         </div>
 
@@ -323,21 +486,22 @@ const enoughConnections = computed(() => connection.connections.length > 1)
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ section.label }}</h2>
             <p class="text-xs text-zinc-400 dark:text-zinc-500">
-              {{ section.same }} identical · {{ section.changed.length }} different ·
-              {{ section.onlyLeft.length + section.onlyRight.length }} unmatched
+              {{ $t('{count} identical', { count: section.same }) }} ·
+              {{ $t('{count} different', { count: section.changed.length }) }} ·
+              {{ $t('{count} unmatched', { count: section.onlyLeft.length + section.onlyRight.length }) }}
             </p>
           </div>
 
           <div v-if="section.onlyLeft.length || section.onlyRight.length" class="mt-3 grid gap-3 sm:grid-cols-2">
             <div v-if="section.onlyLeft.length">
               <p class="text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                Only in {{ nameOf(left) }}
+                {{ $t('Only in {domain}', { domain: nameOf(left) }) }}
               </p>
               <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{{ section.onlyLeft.join(', ') }}</p>
             </div>
             <div v-if="section.onlyRight.length">
               <p class="text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                Only in {{ nameOf(right) }}
+                {{ $t('Only in {domain}', { domain: nameOf(right) }) }}
               </p>
               <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-200">{{ section.onlyRight.join(', ') }}</p>
             </div>
@@ -349,7 +513,7 @@ const enoughConnections = computed(() => connection.connections.length > 1)
                 v-if="section.route"
                 :to="{ name: section.route, params: { name: object.name } }"
                 class="text-indigo-600 hover:underline dark:text-indigo-400"
-                title="Open this object in the active domain"
+                :title="$t('Open this object in the active domain')"
               >
                 {{ object.name }}
               </RouterLink>
@@ -358,7 +522,7 @@ const enoughConnections = computed(() => connection.connections.length > 1)
             <table class="mt-1 w-full text-sm">
               <thead>
                 <tr class="text-left text-xs uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
-                  <th class="py-1 pr-3 font-semibold">Attribute</th>
+                  <th class="py-1 pr-3 font-semibold">{{ $t('Attribute') }}</th>
                   <th class="py-1 pr-3 font-semibold">{{ nameOf(left) }}</th>
                   <th class="py-1 font-semibold">{{ nameOf(right) }}</th>
                 </tr>
@@ -369,11 +533,21 @@ const enoughConnections = computed(() => connection.connections.length > 1)
                   :key="difference.attribute"
                   class="border-t border-zinc-100 dark:border-zinc-800"
                 >
-                  <td class="py-1.5 pr-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">
-                    {{ difference.attribute }}
+                  <td class="py-1.5 pr-3">
+                    <span v-if="difference.label" class="flex items-center gap-1.5 text-zinc-800 dark:text-zinc-100">
+                      {{ difference.label }}
+                      <InfoTip v-if="difference.help" :heading="difference.label" :text="difference.help" />
+                    </span>
+                    <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{{ difference.attribute }}</span>
                   </td>
-                  <td class="py-1.5 pr-3 break-all">{{ difference.left || '—' }}</td>
-                  <td class="py-1.5 break-all">{{ difference.right || '—' }}</td>
+                  <td class="py-1.5 pr-3 break-all">
+                    {{ difference.left || '—' }}
+                    <span v-if="difference.left && difference.unit" class="text-xs text-zinc-400 dark:text-zinc-500">{{ difference.unit }}</span>
+                  </td>
+                  <td class="py-1.5 break-all">
+                    {{ difference.right || '—' }}
+                    <span v-if="difference.right && difference.unit" class="text-xs text-zinc-400 dark:text-zinc-500">{{ difference.unit }}</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -383,13 +557,17 @@ const enoughConnections = computed(() => connection.connections.length > 1)
             v-if="!section.onlyLeft.length && !section.onlyRight.length && !section.changed.length"
             class="mt-2 text-sm text-zinc-500 dark:text-zinc-400"
           >
-            Everything matches.
+            {{ $t('Everything matches.') }}
           </p>
         </section>
       </template>
 
       <div v-else-if="!loading" class="card p-6 text-sm text-zinc-500 dark:text-zinc-400">
-        Pick two domains and press Compare. Both are read with their own credentials; nothing is written to either.
+        {{
+          $t(
+            'Pick two domains and press Compare. Both are read with their own credentials; nothing is written to either.',
+          )
+        }}
       </div>
     </template>
   </div>

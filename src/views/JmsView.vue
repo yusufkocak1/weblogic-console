@@ -8,6 +8,7 @@ import DataTable from '@/components/DataTable.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import StatCard from '@/components/StatCard.vue'
 import HelpPanel from '@/components/HelpPanel.vue'
+import { t } from '@/i18n'
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [jms, infrastructure] = await Promise.all([
@@ -144,164 +145,188 @@ const bridges = computed(() => {
   return rows
 })
 
-const SERVER_COLUMNS = [
+const SERVER_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'JMS server',
-    hint: 'A JMS server hosts destinations and their message store. The WebLogic server it runs on is shown underneath.',
+    label: t('JMS server'),
+    hint: t('A JMS server hosts destinations and their message store. The WebLogic server it runs on is shown underneath.'),
   },
-  { key: 'health', label: 'Health', hint: 'Health of this JMS server. Anything but OK means messaging on it is degraded.' },
-  { key: 'current', label: 'Current', align: 'right', hint: 'Messages sitting in the destination right now, waiting to be consumed. A number that keeps growing means consumers are slower than producers, or have stopped.' },
-  { key: 'pending', label: 'Pending', align: 'right', hint: 'Messages sent or received inside a transaction that has not committed yet, plus messages awaiting acknowledgement. A persistently high value points at consumers that never acknowledge or transactions that never commit.' },
-  { key: 'high', label: 'High', align: 'right', hint: 'The highest current count reached since the server started. Useful for spotting a backlog that has already drained.' },
+  { key: 'health', label: t('Health'), hint: t('Health of this JMS server. Anything but OK means messaging on it is degraded.') },
+  { key: 'current', label: t('Current'), align: 'right', hint: t('Messages sitting in the destination right now, waiting to be consumed. A number that keeps growing means consumers are slower than producers, or have stopped.') },
+  { key: 'pending', label: t('Pending'), align: 'right', hint: t('Messages sent or received inside a transaction that has not committed yet, plus messages awaiting acknowledgement. A persistently high value points at consumers that never acknowledge or transactions that never commit.') },
+  { key: 'high', label: t('High'), align: 'right', hint: t('The highest current count reached since the server started. Useful for spotting a backlog that has already drained.') },
   {
     key: 'received',
-    label: 'Received',
+    label: t('Received'),
     align: 'right',
-    hint: 'Total messages this JMS server has taken in since it started. It only ever grows; the rate it grows at is the interesting part.',
+    hint: t('Total messages this JMS server has taken in since it started. It only ever grows; the rate it grows at is the interesting part.'),
   },
   {
     key: 'bytesCurrent',
-    label: 'Bytes',
+    label: t('Bytes'),
     align: 'right',
-    hint: 'Size of the messages currently held. Watch it against the quota configured for the store.',
+    hint: t('Size of the messages currently held. Watch it against the quota configured for the store.'),
   },
-  { key: 'destinations', label: 'Destinations', align: 'right', hint: 'Queues and topics hosted by this JMS server.' },
-]
+  { key: 'destinations', label: t('Destinations'), align: 'right', hint: t('Queues and topics hosted by this JMS server.') },
+])
 
-const DEST_COLUMNS = [
+const DEST_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'Destination',
-    hint: 'A queue or topic. This is the name applications look up in JNDI to send and receive messages.',
+    label: t('Destination'),
+    hint: t('A queue or topic. This is the name applications look up in JNDI to send and receive messages.'),
   },
-  { key: 'jmsServer', label: 'JMS server', hint: 'The JMS server hosting this destination.' },
-  { key: 'current', label: 'Current', align: 'right', hint: 'Messages sitting in the destination right now, waiting to be consumed. A number that keeps growing means consumers are slower than producers, or have stopped.' },
-  { key: 'pending', label: 'Pending', align: 'right', hint: 'Messages sent or received inside a transaction that has not committed yet, plus messages awaiting acknowledgement. A persistently high value points at consumers that never acknowledge or transactions that never commit.' },
-  { key: 'high', label: 'High', align: 'right', hint: 'The highest current count reached since the server started. Useful for spotting a backlog that has already drained.' },
+  { key: 'jmsServer', label: t('JMS server'), hint: t('The JMS server hosting this destination.') },
+  { key: 'current', label: t('Current'), align: 'right', hint: t('Messages sitting in the destination right now, waiting to be consumed. A number that keeps growing means consumers are slower than producers, or have stopped.') },
+  { key: 'pending', label: t('Pending'), align: 'right', hint: t('Messages sent or received inside a transaction that has not committed yet, plus messages awaiting acknowledgement. A persistently high value points at consumers that never acknowledge or transactions that never commit.') },
+  { key: 'high', label: t('High'), align: 'right', hint: t('The highest current count reached since the server started. Useful for spotting a backlog that has already drained.') },
   {
     key: 'consumers',
-    label: 'Consumers',
+    label: t('Consumers'),
     align: 'right',
-    hint: 'Clients or MDBs currently listening on this destination. Zero consumers with a rising Current count is the classic stuck-queue signature.',
+    hint: t('Clients or MDBs currently listening on this destination. Zero consumers with a rising Current count is the classic stuck-queue signature.'),
   },
-  { key: 'bytesCurrent', label: 'Bytes', align: 'right', hint: 'Size of the messages currently held on this destination.' },
-]
+  { key: 'bytesCurrent', label: t('Bytes'), align: 'right', hint: t('Size of the messages currently held on this destination.') },
+])
 
-const STORE_COLUMNS = [
+const STORE_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'Store',
-    hint: 'Where persistent messages and transaction records are kept — a file store on disk or a JDBC store in a database. A JMS server is only as reliable as its store.',
+    label: t('Store'),
+    hint: t('Where persistent messages and transaction records are kept — a file store on disk or a JDBC store in a database. A JMS server is only as reliable as its store.'),
   },
-  { key: 'server', label: 'Server', hint: 'The server this store is open on.' },
+  { key: 'server', label: t('Server'), hint: t('The server this store is open on.') },
   {
     key: 'objects',
-    label: 'Objects',
+    label: t('Objects'),
     align: 'right',
-    hint: 'Records the store currently holds. A number that only grows means something is being written and never acknowledged.',
+    hint: t('Records the store currently holds. A number that only grows means something is being written and never acknowledged.'),
   },
-  { key: 'writes', label: 'Writes', align: 'right', hint: 'Records written since the store opened.' },
-  { key: 'reads', label: 'Reads', align: 'right', hint: 'Records read back, usually during recovery or redelivery.' },
-  { key: 'deletes', label: 'Deletes', align: 'right', hint: 'Records removed once their message was consumed.' },
-]
+  { key: 'writes', label: t('Writes'), align: 'right', hint: t('Records written since the store opened.') },
+  { key: 'reads', label: t('Reads'), align: 'right', hint: t('Records read back, usually during recovery or redelivery.') },
+  { key: 'deletes', label: t('Deletes'), align: 'right', hint: t('Records removed once their message was consumed.') },
+])
 
-const SAF_COLUMNS = [
+const SAF_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'SAF agent',
-    hint: 'Store-and-forward keeps messages locally when the remote domain cannot be reached, and sends them when it can. A rising pending count means the far end is unreachable.',
+    label: t('SAF agent'),
+    hint: t('Store-and-forward keeps messages locally when the remote domain cannot be reached, and sends them when it can. A rising pending count means the far end is unreachable.'),
   },
-  { key: 'server', label: 'Server', hint: 'The server this agent runs on.' },
-  { key: 'type', label: 'Type', hint: 'Sending, receiving or both.' },
-  { key: 'current', label: 'Current', align: 'right', hint: 'Messages the agent is holding right now.' },
+  { key: 'server', label: t('Server'), hint: t('The server this agent runs on.') },
+  { key: 'type', label: t('Type'), hint: t('Sending, receiving or both.') },
+  { key: 'current', label: t('Current'), align: 'right', hint: t('Messages the agent is holding right now.') },
   {
     key: 'pending',
-    label: 'Pending',
+    label: t('Pending'),
     align: 'right',
-    hint: 'Messages waiting to be forwarded. Sustained above zero means the remote destination is not accepting them.',
+    hint: t('Messages waiting to be forwarded. Sustained above zero means the remote destination is not accepting them.'),
   },
-  { key: 'received', label: 'Received', align: 'right', hint: 'Messages taken in since the server started.' },
+  { key: 'received', label: t('Received'), align: 'right', hint: t('Messages taken in since the server started.') },
   {
     key: 'failed',
-    label: 'Failed',
+    label: t('Failed'),
     align: 'right',
-    hint: 'Messages the agent gave up on, according to its retry and expiry policy. These are gone unless an error destination was configured.',
+    hint: t('Messages the agent gave up on, according to its retry and expiry policy. These are gone unless an error destination was configured.'),
   },
-]
+])
 
-const BRIDGE_COLUMNS = [
+const BRIDGE_COLUMNS = computed(() => [
   {
     key: 'name',
-    label: 'Bridge',
-    hint: 'A messaging bridge copies messages between a WebLogic destination and another provider — a second domain, or a third-party broker.',
+    label: t('Bridge'),
+    hint: t('A messaging bridge copies messages between a WebLogic destination and another provider — a second domain, or a third-party broker.'),
   },
-  { key: 'server', label: 'Server', hint: 'The server running this bridge.' },
+  { key: 'server', label: t('Server'), hint: t('The server running this bridge.') },
   {
     key: 'state',
-    label: 'State',
-    hint: 'Active means it is forwarding. A bridge that will not leave its starting state usually cannot reach one of its two ends.',
+    label: t('State'),
+    hint: t('Active means it is forwarding. A bridge that will not leave its starting state usually cannot reach one of its two ends.'),
   },
-  { key: 'description', label: 'Description' },
-]
+  { key: 'description', label: t('Description') },
+])
 </script>
 
 <template>
   <div>
     <PageHeader
-      title="JMS"
-      subtitle="Messaging runtime across every running server"
+      :title="$t('JMS')"
+      :subtitle="$t('Messaging runtime across every running server')"
       :last-updated="lastUpdated"
       :refreshing="refreshing"
-      help="Live JMS numbers gathered from every running server. This page is runtime only - a JMS server on a stopped WebLogic server does not appear at all."
+      :help="
+        $t(
+          'Live JMS numbers gathered from every running server. This page is runtime only — a JMS server on a stopped WebLogic server does not appear at all.',
+        )
+      "
       @refresh="reload"
     />
 
-    <HelpPanel id="jms" title="How to tell whether messages are stuck">
+    <HelpPanel id="jms" :title="$t('How to tell whether messages are stuck')">
       <ol class="list-decimal space-y-1 pl-4">
         <li>
-          Look at <strong>Messages pending</strong> above. Zero is the healthy state on most domains; a number that
-          stays high means something is not completing.
+          {{
+            $t(
+              'Look at Messages pending above. Zero is the healthy state on most domains; a number that stays high means something is not completing.',
+            )
+          }}
         </li>
         <li>
-          Scroll to <strong>Destinations</strong> and sort by <strong>Current</strong> to find the queue holding the
-          backlog.
+          {{ $t('Scroll to Destinations and sort by Current to find the queue holding the backlog.') }}
         </li>
         <li>
-          Check that queue's <strong>Consumers</strong>. Zero consumers means the listener or MDB is down - look at
-          Deployments, then Logs on the server named under the destination.
+          {{
+            $t(
+              'Check that queue\'s Consumers. Zero consumers means the listener or MDB is down — look at Deployments, then Logs on the server named under the destination.',
+            )
+          }}
         </li>
       </ol>
-      <p>Every column header here has its own info icon explaining what that counter actually measures.</p>
       <p>
-        Below the destinations are the things messaging depends on: the <strong>persistent stores</strong> that hold
-        messages on disk or in a database, the <strong>SAF agents</strong> holding messages for a domain that cannot
-        be reached, and the <strong>bridges</strong> to other providers. A backlog with no obvious cause is often a
-        store that has stopped keeping up.
+        {{ $t('Every column header here has its own info icon explaining what that counter actually measures.') }}
+      </p>
+      <p>
+        {{
+          $t(
+            'Below the destinations are the things messaging depends on: the persistent stores that hold messages on disk or in a database, the SAF agents holding messages for a domain that cannot be reached, and the bridges to other providers. A backlog with no obvious cause is often a store that has stopped keeping up.',
+          )
+        }}
       </p>
     </HelpPanel>
 
     <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard
-        label="JMS servers"
+        :label="$t('JMS servers')"
         :value="num(jmsServers.length)"
-        info="JMS servers running right now across the domain. Each one hosts destinations and owns their message store."
+        :info="
+          $t(
+            'JMS servers running right now across the domain. Each one hosts destinations and owns their message store.',
+          )
+        "
       />
       <StatCard
-        label="Destinations"
+        :label="$t('Destinations')"
         :value="num(destinations.length)"
-        info="Queues and topics currently available across all JMS servers."
+        :info="$t('Queues and topics currently available across all JMS servers.')"
       />
       <StatCard
-        label="Messages current"
+        :label="$t('Messages current')"
         :value="num(totals.current)"
-        info="Messages held across every destination right now. A steady number is normal traffic; a number that only climbs is a backlog."
+        :info="
+          $t(
+            'Messages held across every destination right now. A steady number is normal traffic; a number that only climbs is a backlog.',
+          )
+        "
       />
       <StatCard
-        label="Messages pending"
+        :label="$t('Messages pending')"
         :value="num(totals.pending)"
         :tone="totals.pending > 0 ? 'warn' : 'good'"
-        info="Messages inside uncommitted transactions or awaiting acknowledgement. This is usually the first place a messaging problem shows up."
+        :info="
+          $t(
+            'Messages inside uncommitted transactions or awaiting acknowledgement. This is usually the first place a messaging problem shows up.',
+          )
+        "
       />
     </div>
 
@@ -313,9 +338,9 @@ const BRIDGE_COLUMNS = [
       export-name="jms-servers"
       :loading="loading"
       :error="error && !data ? error : null"
-      empty-text="No JMS servers are running. Only running servers report JMS runtime."
-      search-placeholder="Filter JMS servers…"
-      search-hint="Matches the JMS server name and the WebLogic server hosting it."
+      :empty-text="$t('No JMS servers are running. Only running servers report JMS runtime.')"
+      :search-placeholder="$t('Filter JMS servers…')"
+      :search-hint="$t('Matches the JMS server name and the WebLogic server hosting it.')"
       @retry="reload"
     >
       <template #cell:name="{ row }">
@@ -337,7 +362,7 @@ const BRIDGE_COLUMNS = [
 
     <template v-if="destinations.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Destinations
+        {{ $t('Destinations') }}
       </h2>
       <DataTable
         :columns="DEST_COLUMNS"
@@ -346,8 +371,8 @@ const BRIDGE_COLUMNS = [
         state-key="dest"
         export-name="jms-destinations"
         dense
-        search-placeholder="Filter destinations…"
-        search-hint="Matches the destination name, its JMS server and the WebLogic server hosting it."
+        :search-placeholder="$t('Filter destinations…')"
+        :search-hint="$t('Matches the destination name, its JMS server and the WebLogic server hosting it.')"
       >
         <template #cell:name="{ row }">
           <div class="font-medium text-zinc-900 dark:text-zinc-50">{{ row.name }}</div>
@@ -367,9 +392,9 @@ const BRIDGE_COLUMNS = [
 
     <template v-if="stores.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Persistent stores
+        {{ $t('Persistent stores') }}
         <span class="ml-1 font-normal normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
-          — where persistent messages and transaction records actually live
+          {{ $t('— where persistent messages and transaction records actually live') }}
         </span>
       </h2>
       <DataTable
@@ -379,8 +404,8 @@ const BRIDGE_COLUMNS = [
         state-key="stores"
         export-name="persistent-stores"
         dense
-        search-placeholder="Filter stores…"
-        search-hint="Matches the store name and the server it is open on."
+        :search-placeholder="$t('Filter stores…')"
+        :search-hint="$t('Matches the store name and the server it is open on.')"
       >
         <template #cell:objects="{ row }"><span class="tabular-nums">{{ num(row.objects) }}</span></template>
         <template #cell:writes="{ row }"><span class="tabular-nums">{{ num(row.writes) }}</span></template>
@@ -391,9 +416,9 @@ const BRIDGE_COLUMNS = [
 
     <template v-if="safAgents.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Store-and-forward agents
+        {{ $t('Store-and-forward agents') }}
         <span class="ml-1 font-normal normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
-          — messages held for a domain that cannot be reached right now
+          {{ $t('— messages held for a domain that cannot be reached right now') }}
         </span>
       </h2>
       <DataTable
@@ -403,8 +428,8 @@ const BRIDGE_COLUMNS = [
         state-key="saf"
         export-name="saf-agents"
         dense
-        search-placeholder="Filter agents…"
-        search-hint="Matches the agent name, its type and the server it runs on."
+        :search-placeholder="$t('Filter agents…')"
+        :search-hint="$t('Matches the agent name, its type and the server it runs on.')"
       >
         <template #cell:current="{ row }"><span class="tabular-nums">{{ num(row.current) }}</span></template>
         <template #cell:pending="{ row }">
@@ -423,9 +448,9 @@ const BRIDGE_COLUMNS = [
 
     <template v-if="bridges.length">
       <h2 class="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-        Messaging bridges
+        {{ $t('Messaging bridges') }}
         <span class="ml-1 font-normal normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
-          — links between this domain's destinations and another provider
+          {{ $t('— links between this domain\'s destinations and another provider') }}
         </span>
       </h2>
       <DataTable
@@ -435,8 +460,8 @@ const BRIDGE_COLUMNS = [
         state-key="bridges"
         export-name="messaging-bridges"
         dense
-        search-placeholder="Filter bridges…"
-        search-hint="Matches the bridge name, state and the server it runs on."
+        :search-placeholder="$t('Filter bridges…')"
+        :search-hint="$t('Matches the bridge name, state and the server it runs on.')"
       >
         <template #cell:state="{ row }"><StateBadge :state="String(row.state).toUpperCase()" /></template>
         <template #cell:description="{ row }">
@@ -449,8 +474,11 @@ const BRIDGE_COLUMNS = [
       v-if="data && !data.infrastructure"
       class="mt-3 text-xs text-zinc-400 dark:text-zinc-500"
     >
-      Persistent stores, SAF agents and bridges could not be read from this domain — that part of the runtime tree is
-      not exposed by this WebLogic release.
+      {{
+        $t(
+          'Persistent stores, SAF agents and bridges could not be read from this domain — that part of the runtime tree is not exposed by this WebLogic release.',
+        )
+      }}
     </p>
   </div>
 </template>

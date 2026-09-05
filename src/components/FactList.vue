@@ -16,7 +16,7 @@ defineProps({
     <div v-for="fact in facts" :key="fact.label" class="min-w-0">
       <dt class="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
         {{ fact.label }}
-        <InfoTip v-if="fact.hint" :heading="fact.label" :text="fact.hint" :label="`What ${fact.label} means`" />
+        <InfoTip v-if="fact.hint" :heading="fact.label" :text="fact.hint" :label="$t('What {label} means', { label: fact.label })" />
       </dt>
       <dd
         :class="[

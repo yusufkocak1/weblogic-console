@@ -4,6 +4,7 @@ import { useActivityStore } from '@/stores/activity'
 import { useUiStore } from '@/stores/ui'
 import { useConnectionStore } from '@/stores/connection'
 import { curlForServerAction, wlstForServerAction } from '@/utils/wlst'
+import { t } from '@/i18n'
 
 /**
  * Server lifecycle operations, shared by the Servers list and a single
@@ -26,44 +27,47 @@ function actionsForState(state) {
   switch (state) {
     case 'RUNNING':
       return [
-        { action: 'suspend', label: 'Suspend' },
-        { action: 'shutdown', label: 'Shutdown', danger: true },
+        { action: 'suspend', label: t('Suspend') },
+        { action: 'shutdown', label: t('Shutdown'), danger: true },
       ]
     case 'ADMIN':
     case 'STANDBY':
       return [
-        { action: 'resume', label: 'Resume' },
-        { action: 'shutdown', label: 'Shutdown', danger: true },
+        { action: 'resume', label: t('Resume') },
+        { action: 'shutdown', label: t('Shutdown'), danger: true },
       ]
     case 'SHUTDOWN':
     case 'FAILED_NOT_RESTARTABLE':
-      return [{ action: 'start', label: 'Start' }]
+      return [{ action: 'start', label: t('Start') }]
     case 'FAILED':
       return [
-        { action: 'start', label: 'Start' },
-        { action: 'forceShutdown', label: 'Force shutdown', danger: true },
+        { action: 'start', label: t('Start') },
+        { action: 'forceShutdown', label: t('Force shutdown'), danger: true },
       ]
     default:
-      return [{ action: 'forceShutdown', label: 'Force shutdown', danger: true }]
+      return [{ action: 'forceShutdown', label: t('Force shutdown'), danger: true }]
   }
 }
 
-/** Everything a bulk action can be, whatever the states of the selection are. */
-export const BULK_ACTIONS = [
-  { action: 'start', label: 'Start' },
-  { action: 'resume', label: 'Resume' },
-  { action: 'suspend', label: 'Suspend' },
-  { action: 'shutdown', label: 'Shutdown', danger: true },
-  { action: 'forceShutdown', label: 'Force shutdown', danger: true },
+/**
+ * Everything a bulk action can be, whatever the states of the selection are.
+ * A function rather than a constant so the labels follow a language change.
+ */
+export const bulkActions = () => [
+  { action: 'start', label: t('Start') },
+  { action: 'resume', label: t('Resume') },
+  { action: 'suspend', label: t('Suspend') },
+  { action: 'shutdown', label: t('Shutdown'), danger: true },
+  { action: 'forceShutdown', label: t('Force shutdown'), danger: true },
 ]
 
-export const ACTION_DESCRIPTIONS = {
-  start: 'Node Manager must be running on the target machine for a server to start.',
-  shutdown: 'The server stops accepting new work and shuts down gracefully.',
-  forceShutdown: 'The server is killed immediately. In-flight work is lost.',
-  suspend: 'The server moves to ADMIN state and stops serving application traffic.',
-  resume: 'The server returns to RUNNING and resumes serving traffic.',
-}
+export const actionDescriptions = () => ({
+  start: t('Node Manager must be running on the target machine for a server to start.'),
+  shutdown: t('The server stops accepting new work and shuts down gracefully.'),
+  forceShutdown: t('The server is killed immediately. In-flight work is lost.'),
+  suspend: t('The server moves to ADMIN state and stops serving application traffic.'),
+  resume: t('The server returns to RUNNING and resumes serving traffic.'),
+})
 
 /**
  * The state each operation is asking the server to reach. Used to describe the
@@ -83,13 +87,13 @@ export const ACTION_RESULT = {
  * server again — which is not the same as the shutdown never having happened,
  * so the log says so rather than calling it an erasure.
  */
-export const INVERSE_ACTION = {
-  start: { action: 'shutdown', label: 'Shutdown' },
-  resume: { action: 'suspend', label: 'Suspend' },
-  suspend: { action: 'resume', label: 'Resume' },
-  shutdown: { action: 'start', label: 'Start' },
-  forceShutdown: { action: 'start', label: 'Start' },
-}
+export const inverseAction = () => ({
+  start: { action: 'shutdown', label: t('Shutdown') },
+  resume: { action: 'suspend', label: t('Suspend') },
+  suspend: { action: 'resume', label: t('Resume') },
+  shutdown: { action: 'start', label: t('Start') },
+  forceShutdown: { action: 'start', label: t('Start') },
+})
 
 /**
  * @param {{confirm: import('vue').Ref, onChanged: () => void}} options
@@ -113,56 +117,59 @@ export function useServerActions({ confirm, onChanged }) {
    * falls back to whatever the runtime last reported rather than inventing one.
    */
   function log(servers, { action, label, from }, error) {
-    const inverse = INVERSE_ACTION[action]
+    const inverse = inverseAction()[action]
     const changes = servers.map((server) => ({
       label: server,
       attr: 'state',
-      from: from || 'previous state',
+      from: from || t('previous state'),
       to: ACTION_RESULT[action] || action,
     }))
-    const what = servers.length === 1 ? servers[0] : `${servers.length} servers`
+    const what = servers.length === 1 ? servers[0] : t('{count} servers', { count: servers.length })
 
     if (error) {
       activity.record({
         kind: 'lifecycle',
-        title: `Failed — ${label} ${what}`,
+        title: t('Failed — {action} {what}', { action: label, what }),
         summary: error,
         changes,
         status: 'failed',
-        undoNote: 'Nothing to roll back: the operation did not go through.',
+        undoNote: t('Nothing to roll back: the operation did not go through.'),
       })
       return
     }
 
     activity.record({
       kind: 'lifecycle',
-      title: `${label} ${what}`,
-      summary: ACTION_DESCRIPTIONS[action] || '',
+      title: t('{action} {what}', { action: label, what }),
+      summary: actionDescriptions()[action] || '',
       changes,
       undo: inverse
         ? {
             type: 'lifecycle',
             servers: [...servers],
             action: inverse.action,
-            summary: `${inverse.label} requested on ${what}.`,
+            summary: t('{action} requested on {what}.', { action: inverse.label, what }),
             body:
-              `${inverse.label} is requested on ${what}, one server at a time. ` +
-              'A server that has been through a shutdown does not come back where it was — sessions and in-flight work are gone either way.',
-            hint: `${inverse.label} ${what}`,
+              t('{action} is requested on {what}, one server at a time.', { action: inverse.label, what }) +
+              ' ' +
+              t(
+                'A server that has been through a shutdown does not come back where it was — sessions and in-flight work are gone either way.',
+              ),
+            hint: t('{action} {what}', { action: inverse.label, what }),
           }
         : null,
-      undoNote: inverse ? '' : 'This operation has no opposite.',
+      undoNote: inverse ? '' : t('This operation has no opposite.'),
     })
   }
 
   async function run(server, { action, label, danger, from }) {
     const ok = await confirm.value.ask({
-      title: `${label} ${server}?`,
-      body: ACTION_DESCRIPTIONS[action] || '',
+      title: t('{action} {server}?', { action: label, server }),
+      body: actionDescriptions()[action] || '',
       confirmLabel: label,
       danger: Boolean(danger),
       script: {
-        subtitle: `${label} ${server}`,
+        subtitle: t('{action} {server}', { action: label, server }),
         wlst: wlstForServerAction(server, action, scriptContext()),
         curl: curlForServerAction(server, action, scriptContext()),
       },
@@ -173,11 +180,14 @@ export function useServerActions({ confirm, onChanged }) {
     try {
       await wls.serverAction(server, action)
       log([server], { action, label, from })
-      ui.success(`${label} requested`, `${server} is transitioning — the state updates as it changes.`)
+      ui.success(
+        t('{action} requested', { action: label }),
+        t('{server} is transitioning — the state updates as it changes.', { server }),
+      )
       setTimeout(() => onChanged?.(), 1500)
     } catch (err) {
       log([server], { action, label, from }, err.fullText || err.message)
-      ui.error(`${label} failed on ${server}`, err.fullText || err.message)
+      ui.error(t('{action} failed on {server}', { action: label, server }), err.fullText || err.message)
     } finally {
       busy.value = null
     }
@@ -195,12 +205,15 @@ export function useServerActions({ confirm, onChanged }) {
     if (!servers.length) return
     const list = servers.join(', ')
     const ok = await confirm.value.ask({
-      title: `${label} ${servers.length} server${servers.length === 1 ? '' : 's'}?`,
-      body: `${list}. ${ACTION_DESCRIPTIONS[action] || ''} Each one is requested in turn.`,
+      title:
+        servers.length === 1
+          ? t('{action} 1 server?', { action: label })
+          : t('{action} {count} servers?', { action: label, count: servers.length }),
+      body: `${list}. ${actionDescriptions()[action] || ''} ${t('Each one is requested in turn.')}`,
       confirmLabel: `${label} ${servers.length}`,
       danger: Boolean(danger),
       script: {
-        subtitle: `${label} ${list}`,
+        subtitle: t('{action} {what}', { action: label, what: list }),
         wlst: servers.map((server) => wlstForServerAction(server, action, scriptContext())).join('\n\n'),
         curl: servers.map((server) => curlForServerAction(server, action, scriptContext())).join('\n\n'),
       },
@@ -227,8 +240,17 @@ export function useServerActions({ confirm, onChanged }) {
     if (failures.length) log(servers.filter((server) => !succeeded.includes(server)), { action, label, from }, failures.join(' · '))
 
     const done = servers.length - failures.length
-    if (done) ui.success(`${label} requested on ${done} server${done === 1 ? '' : 's'}`, 'States update as they change.')
-    if (failures.length) ui.error(`${label} failed on ${failures.length}`, failures.join(' · '))
+    if (done) {
+      ui.success(
+        done === 1
+          ? t('{action} requested on 1 server', { action: label })
+          : t('{action} requested on {count} servers', { action: label, count: done }),
+        t('States update as they change.'),
+      )
+    }
+    if (failures.length) {
+      ui.error(t('{action} failed on {count}', { action: label, count: failures.length }), failures.join(' · '))
+    }
     setTimeout(() => onChanged?.(), 1500)
   }
 
