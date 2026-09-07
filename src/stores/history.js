@@ -76,8 +76,14 @@ let onVisible = null
 
 function readWindow() {
   try {
-    const raw = Number(localStorage.getItem(WINDOW_KEY))
-    if (WINDOW_OPTIONS.some((option) => option.value === raw)) return raw
+    // The absence of a saved choice has to be checked before the number is
+    // read: Number(null) is 0, and 0 is a window this store offers — "All" —
+    // so a first visit would silently open every chart on the whole buffer.
+    const saved = localStorage.getItem(WINDOW_KEY)
+    if (saved !== null && saved !== '') {
+      const raw = Number(saved)
+      if (WINDOW_OPTIONS.some((option) => option.value === raw)) return raw
+    }
   } catch {
     /* storage disabled — the default window it is */
   }
@@ -240,8 +246,13 @@ export const useHistoryStore = defineStore('history', {
           .filter((point) => byTime.get(point.t))
           .map((point) => ({ t: point.t, v: (point.v / byTime.get(point.t)) * 100 }))
         const throughput = this.points(server, 'tp')
+        // Paired on the timestamp, the way `used` is. By position, a sample
+        // that carried one reading and not the other would shift the two
+        // series against each other and divide a throughput by a busy count
+        // from a different moment — a figure that was never measured.
+        const busyByTime = new Map(busy.map((point) => [point.t, point.v]))
         const perThread = throughput
-          .map((point, index) => ({ t: point.t, busy: busy[index]?.v || 0, v: point.v }))
+          .map((point) => ({ t: point.t, busy: busyByTime.get(point.t) || 0, v: point.v }))
           .filter((point) => point.busy > 0)
           .map((point) => ({ t: point.t, v: point.v / point.busy }))
         return {

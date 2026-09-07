@@ -2167,9 +2167,27 @@ export default {
   'Start the console with WLC_ALERT_WEBHOOK set to a URL and these alerts can also be posted there, for when nobody has the console open.':
     'Konsolu WLC_ALERT_WEBHOOK bir URL olacak şekilde başlatırsanız, kimse konsolu açık tutmadığında bu uyarılar oraya da gönderilebilir.',
 
-  // ------------------------------------------------------------ alerts: snooze
-  'Snoozed': 'Ertelenenler',
-  'Some servers are snoozed': "Bazı server'lar ertelenmiş durumda",
+  // ------------------------------------------------------- alerts: what is muted
+  'Watch this cluster': "Bu cluster'ı izle",
+  'Alerts about the members of this cluster — a server leaving RUNNING, a heap or queue past its threshold, a stuck thread — are raised only while this is ticked. Untick it for a cluster that somebody else looks after: unlike a snooze it does not expire, and the bell keeps a mark to say part of the domain is out of the watch.':
+    "Bu cluster'ın üyeleriyle ilgili uyarılar — bir server'ın RUNNING'den çıkması, eşiği aşan bir heap veya kuyruk, takılmış bir thread — yalnızca bu kutu işaretliyken üretilir. Bakımı başkasına ait olan bir cluster için işareti kaldırın: ertelemenin aksine süresi dolmaz ve zil, domain'in bir bölümünün izlem dışında olduğunu belirten bir işaret taşımayı sürdürür.",
+  'Its members raise alerts like the rest of the domain.':
+    "Üyeleri, domain'in geri kalanı gibi uyarı üretir.",
+  'Nothing about its members is announced.': 'Üyeleriyle ilgili hiçbir şey bildirilmez.',
+  'Clusters to watch': "İzlenecek cluster'lar",
+  'Which part of the domain this bell speaks for. An unticked cluster raises nothing at all — no alert, no toast, no notification — for any of its servers, until it is ticked again. Unlike a snooze it does not expire, so it is the setting for a cluster that somebody else looks after rather than for one that is being worked on right now.':
+    "Bu zilin domain'in hangi bölümü adına konuştuğu. İşareti kaldırılan bir cluster, yeniden işaretlenene kadar hiçbir server'ı için hiçbir şey üretmez — ne uyarı, ne bildirim, ne masaüstü bildirimi. Ertelemenin aksine süresi dolmaz; yani bu ayar, şu an üzerinde çalışılan bir cluster için değil, bakımı başkasına ait olan bir cluster içindir.",
+  'Servers in no cluster': "Cluster'a ait olmayan server'lar",
+  'not in this domain': "bu domain'de yok",
+  'Watch {cluster}': '{cluster} izlensin',
+  'Watch all': 'Hepsini izle',
+  'Watch every cluster in this domain again': "Bu domain'deki bütün cluster'ları yeniden izler",
+  'The clusters in this domain appear here once its configuration has been read.':
+    "Bu domain'deki cluster'lar, konfigürasyonu okunduğunda burada listelenir.",
+  'Not being watched': 'İzlenmeyenler',
+  'Part of this domain is not being watched': "Bu domain'in bir bölümü izlenmiyor",
+  'until you turn it back on': 'siz geri açana kadar',
+  'Watch': 'İzle',
   'until {time}': '{time} saatine kadar',
   'Wake': 'Uyandır',
   'Snooze…': 'Ertele…',

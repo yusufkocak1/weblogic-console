@@ -37,7 +37,12 @@ function readHelp() {
 
 function readRefresh() {
   try {
-    const raw = Number(localStorage.getItem(REFRESH_KEY))
+    // Whether anything was saved has to be settled before the number is read:
+    // Number(null) is 0, and 0 is one of the options offered — "Off" — so a
+    // first visit would open with auto-refresh silently turned off.
+    const saved = localStorage.getItem(REFRESH_KEY)
+    if (saved === null || saved === '') return 15000
+    const raw = Number(saved)
     return REFRESH_OPTIONS.some((o) => o.value === raw) ? raw : 15000
   } catch {
     return 15000

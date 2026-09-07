@@ -418,6 +418,13 @@ Across every page:
   desktop notification and a count in the tab title. Every threshold is yours to
   set, and each condition is reported once when it starts and once when it
   clears, not on every poll.
+- **It watches only what is yours.** Nobody looks after every cluster in a
+  domain, and a bell that cries about somebody else's servers is the bell that
+  gets ignored when it is about yours. Each cluster can be taken out of the
+  watch — from the alerts panel or from the cluster's own page — and unlike a
+  snooze that choice does not expire; the bell keeps a mark while any part of
+  the domain is left out, so a quiet console is never mistaken for a quiet
+  domain.
 - **Recent history, not just the current reading.** The same samples draw a
   sparkline under each heap and thread-pool bar. A heap that sawtooths is
   healthy garbage collection; one that climbs in steps is a leak, and that is

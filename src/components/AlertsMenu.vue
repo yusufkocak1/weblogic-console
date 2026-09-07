@@ -10,11 +10,12 @@ import { t } from '@/i18n'
  * watches against. Both live here because the first question after seeing an
  * alert is usually "at what number did that fire?".
  *
- * The panel also carries the two controls that decide whether an operator keeps
- * the bell switched on at all — how long a level has to hold before it counts,
- * and a per-server threshold for the server whose normal is not everyone's
- * normal — because the alternative to both is turning a rule off for the whole
- * domain and never turning it back on.
+ * The panel also carries the three controls that decide whether an operator
+ * keeps the bell switched on at all — how long a level has to hold before it
+ * counts, a per-server threshold for the server whose normal is not everyone's
+ * normal, and which clusters the watch covers at all — because the alternative
+ * to each of them is turning a rule off for the whole domain and never turning
+ * it back on.
  */
 const alerts = useAlertsStore()
 const history = useHistoryStore()
@@ -56,6 +57,21 @@ const OVERRIDABLE = [
 ]
 
 const servers = computed(() => history.serverNames)
+
+/** The clusters this bell can be pointed at, and who is in each of them. */
+const groups = computed(() => alerts.watchGroups)
+
+/**
+ * The cluster list is read from the domain's configuration, so it is asked for
+ * again whenever the thresholds are opened: a cluster added this morning should
+ * be on offer this morning.
+ */
+function toggleRules() {
+  showRules.value = !showRules.value
+  if (showRules.value) alerts.readTopology(true)
+}
+
+const groupLabel = (cluster) => cluster || t('Servers in no cluster')
 
 const snoozedServers = computed(() =>
   Object.entries(alerts.snoozed)
@@ -133,9 +149,9 @@ function snooze(server, raw) {
       </span>
       <!-- A muted domain must say so, or the quiet reads as good news. -->
       <span
-        v-else-if="alerts.anySnoozed"
+        v-else-if="alerts.anyMuted"
         class="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-zinc-400"
-        :title="$t('Some servers are snoozed')"
+        :title="$t('Part of this domain is not being watched')"
       />
     </button>
 
@@ -160,7 +176,7 @@ function snooze(server, raw) {
         <button
           class="ml-auto text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
           :title="$t('Show the thresholds these alerts fire at')"
-          @click="showRules = !showRules"
+          @click="toggleRules()"
         >
           {{ showRules ? $t('Hide thresholds') : $t('Thresholds') }}
         </button>
@@ -330,6 +346,56 @@ function snooze(server, raw) {
           />
         </label>
 
+        <!-- Nobody looks after every cluster in a domain, and an alert about
+             somebody else's is what teaches an operator to ignore the bell. -->
+        <div class="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <div class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1 text-zinc-700 dark:text-zinc-200">
+              {{ $t('Clusters to watch') }}
+              <InfoTip
+                :heading="$t('Clusters to watch')"
+                :text="
+                  $t(
+                    'Which part of the domain this bell speaks for. An unticked cluster raises nothing at all — no alert, no toast, no notification — for any of its servers, until it is ticked again. Unlike a snooze it does not expire, so it is the setting for a cluster that somebody else looks after rather than for one that is being worked on right now.',
+                  )
+                "
+              />
+            </span>
+            <button
+              v-if="alerts.unwatchedClusters.length"
+              class="shrink-0 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+              :title="$t('Watch every cluster in this domain again')"
+              @click="alerts.watchEverything()"
+            >
+              {{ $t('Watch all') }}
+            </button>
+          </div>
+
+          <ul v-if="groups.length" class="space-y-1">
+            <li v-for="group in groups" :key="group.cluster" class="flex items-center justify-between gap-2 text-xs">
+              <span class="min-w-0">
+                <span class="text-zinc-600 dark:text-zinc-300">{{ groupLabel(group.cluster) }}</span>
+                <span v-if="group.servers.length" class="ml-1 text-zinc-400 dark:text-zinc-500">
+                  {{ group.servers.join(', ') }}
+                </span>
+                <span v-else class="ml-1 text-zinc-400 dark:text-zinc-500">
+                  {{ $t('not in this domain') }}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                class="shrink-0"
+                :checked="group.watched"
+                :aria-label="$t('Watch {cluster}', { cluster: groupLabel(group.cluster) })"
+                @change="alerts.watchCluster(group.cluster, $event.target.checked)"
+              />
+            </li>
+          </ul>
+          <p v-else class="text-[11px] text-zinc-400 dark:text-zinc-500">
+            {{ $t('The clusters in this domain appear here once its configuration has been read.') }}
+          </p>
+        </div>
+
         <!-- One threshold rarely fits an AdminServer and a managed server both. -->
         <div class="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
           <div class="flex items-center justify-between gap-2">
@@ -446,11 +512,27 @@ function snooze(server, raw) {
       </div>
 
       <div
-        v-if="snoozedServers.length"
+        v-if="snoozedServers.length || alerts.unwatchedClusters.length"
         class="border-b border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800"
       >
-        <p class="mb-1 text-zinc-500 dark:text-zinc-400">{{ $t('Snoozed') }}</p>
+        <p class="mb-1 text-zinc-500 dark:text-zinc-400">{{ $t('Not being watched') }}</p>
         <ul class="space-y-1">
+          <li
+            v-for="cluster in alerts.unwatchedClusters"
+            :key="`cluster:${cluster}`"
+            class="flex items-center justify-between gap-2"
+          >
+            <span class="truncate text-zinc-600 dark:text-zinc-300">
+              {{ groupLabel(cluster) }}
+              <span class="text-zinc-400 dark:text-zinc-500">{{ $t('until you turn it back on') }}</span>
+            </span>
+            <button
+              class="shrink-0 text-indigo-600 hover:underline dark:text-indigo-400"
+              @click="alerts.watchCluster(cluster, true)"
+            >
+              {{ $t('Watch') }}
+            </button>
+          </li>
           <li v-for="entry in snoozedServers" :key="entry.server" class="flex items-center justify-between gap-2">
             <span class="truncate text-zinc-600 dark:text-zinc-300">
               {{ entry.server }}

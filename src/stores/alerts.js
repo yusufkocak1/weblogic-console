@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import * as api from '@/api/client'
+import * as wls from '@/api/weblogic'
 import { useUiStore } from '@/stores/ui'
+import { items, targetNames } from '@/utils/format'
 import { setTitleBadge } from '@/utils/title'
 import { t } from '@/i18n'
 
@@ -25,6 +27,14 @@ import { t } from '@/i18n'
  * threshold rarely fits every server: an AdminServer idling at 85% heap is
  * normal and a managed server doing the same is not, so any rule can be
  * overridden per server.
+ *
+ * The third thing is that a domain is rarely one person's to look after. A
+ * console watching every cluster tells an operator who runs the payments
+ * cluster about the reporting cluster's heap, and the bell that cries about
+ * somebody else's servers is the bell that gets ignored when it is about
+ * yours. So the watch itself has a scope: a cluster can be left out of it
+ * entirely, which is a snooze that does not expire and is chosen by where a
+ * server lives rather than by its name.
  */
 
 const RULES_KEY = 'wl-console.alerts.rules'
@@ -33,6 +43,7 @@ const DESKTOP_KEY = 'wl-console.alerts.desktop'
 const FORWARD_KEY = 'wl-console.alerts.forward'
 const ALERTS_KEY = 'wl-console.alerts.log'
 const SNOOZE_KEY = 'wl-console.alerts.snoozed'
+const CLUSTERS_KEY = 'wl-console.alerts.unwatched'
 const MAX_ALERTS = 200
 /** Alerts older than this are not worth reading back after a reload. */
 const ALERT_TTL_MS = 24 * 60 * 60 * 1000
@@ -146,6 +157,22 @@ export const useAlertsStore = defineStore('alerts', {
     overrides: readJson(OVERRIDES_KEY, {}),
     /** server -> epoch ms until which nothing about it is announced. */
     snoozed: readJson(SNOOZE_KEY, {}),
+    /**
+     * Clusters left out of the watch, as `{[cluster]: true}`. Sparse and
+     * inverted on purpose: a cluster added to the domain tomorrow is watched
+     * without anybody having to come back here and say so.
+     */
+    unwatched: readJson(CLUSTERS_KEY, {}),
+    /**
+     * server -> the cluster it is configured into, or '' for a server that is
+     * in none. Read from the domain's configuration rather than from the
+     * samples, because a stopped server has no runtime to ask and "a member of
+     * the cluster I am not watching is down" is precisely the alert this has to
+     * be able to place.
+     */
+    membership: {},
+    /** Whether that map has been asked for yet on this connection. */
+    topologyRead: false,
     /** Browser notifications, off until the user turns them on and grants it. */
     desktop: readFlag(DESKTOP_KEY),
     /** Hand alerts to the backend's webhook as well, when it has one. */
@@ -185,6 +212,58 @@ export const useAlertsStore = defineStore('alerts', {
     },
 
     anySnoozed: (state) => Object.values(state.snoozed).some((until) => until > Date.now()),
+
+    /** The cluster a server belongs to, '' for none, undefined while unknown. */
+    clusterOf: (state) => (server) => state.membership[server],
+
+    /**
+     * Whether this server is inside a cluster nobody asked to watch.
+     *
+     * A server the map does not mention yet is watched. The alternative — no
+     * map, so everything counts as "in no cluster" — would let an operator who
+     * left the standalone group out silence the whole domain for the seconds
+     * between connecting and reading the configuration, including the
+     * AdminServer.
+     */
+    unwatchedServer: (state) => (server) => {
+      const cluster = state.membership[server]
+      return cluster === undefined ? false : Boolean(state.unwatched[cluster])
+    },
+
+    /** The clusters left out, for the panel to show and offer back. */
+    unwatchedClusters: (state) => Object.keys(state.unwatched).sort(),
+
+    /**
+     * One row per cluster for the panel: its members, and whether it is
+     * watched. A cluster that is only in the ignore list — the domain was
+     * switched, or it was removed — is still listed, or there would be no way
+     * to take it off that list again.
+     */
+    watchGroups: (state) => {
+      const groups = new Map()
+      for (const [server, cluster] of Object.entries(state.membership)) {
+        if (!groups.has(cluster)) groups.set(cluster, [])
+        groups.get(cluster).push(server)
+      }
+      for (const cluster of Object.keys(state.unwatched)) if (!groups.has(cluster)) groups.set(cluster, [])
+      return [...groups.entries()]
+        .map(([cluster, servers]) => ({
+          cluster,
+          servers: servers.sort(),
+          watched: !state.unwatched[cluster],
+        }))
+        // Servers in no cluster are a group like any other, but they are not a
+        // cluster, so they go last rather than first under an empty name.
+        .sort((a, b) => {
+          if (!a.cluster !== !b.cluster) return a.cluster ? -1 : 1
+          return a.cluster.localeCompare(b.cluster)
+        })
+    },
+
+    /** Anything at all being kept quiet, for the bell to admit to. */
+    anyMuted() {
+      return this.anySnoozed || Object.keys(this.unwatched).length > 0
+    },
   },
 
   actions: {
@@ -234,6 +313,55 @@ export const useAlertsStore = defineStore('alerts', {
       else delete all[server]
       this.snoozed = all
       writeJson(SNOOZE_KEY, all)
+    },
+
+    /**
+     * Which clusters this bell speaks for.
+     *
+     * Unwatching is deliberately not a rule that can be forgotten about: the
+     * bell keeps a mark while any part of the domain is out of the watch, and
+     * the panel lists what is missing, because a quiet console and a console
+     * that was told to be quiet look identical otherwise.
+     */
+    watchCluster(cluster, watched) {
+      const key = cluster || ''
+      const all = { ...this.unwatched }
+      if (watched) delete all[key]
+      else all[key] = true
+      this.unwatched = all
+      writeJson(CLUSTERS_KEY, all)
+    },
+
+    /** Back to watching the whole domain. */
+    watchEverything() {
+      this.unwatched = {}
+      writeJson(CLUSTERS_KEY, {})
+    },
+
+    /**
+     * Reads which cluster each server is configured into.
+     *
+     * One request per connection, from the configuration rather than the
+     * runtime: the servers this most needs to place are the ones that are down.
+     * A failure is not retried on every sample — with no map nothing is
+     * filtered, which is the behaviour this console had before — but opening
+     * the panel asks again.
+     */
+    async readTopology(force = false) {
+      if (this.topologyRead && !force) return this.membership
+      this.topologyRead = true
+      try {
+        const payload = await wls.configuredServers()
+        const map = {}
+        for (const server of items(payload)) {
+          if (!server?.name) continue
+          map[server.name] = targetNames(server.cluster)[0] || ''
+        }
+        this.membership = map
+      } catch {
+        /* left unfiltered rather than wrongly filtered */
+      }
+      return this.membership
     },
 
     /** Asks the browser for permission the first time notifications are turned on. */
@@ -324,6 +452,10 @@ export const useAlertsStore = defineStore('alerts', {
      */
     ingest(samples, context = {}) {
       if (context.webhook !== undefined) this.webhookAvailable = Boolean(context.webhook)
+      // Samples arrive wherever the console is open, so this is also where the
+      // map of who belongs to which cluster gets read — not awaited, because
+      // this batch is judged with whatever is already known.
+      if (!this.topologyRead) this.readTopology()
       // The first batch also carries whatever history the backend had already
       // collected, so it only sets the baseline. Everything after it is a
       // change that happened while you were watching.
@@ -366,7 +498,8 @@ export const useAlertsStore = defineStore('alerts', {
       const rule = (key) => this.ruleFor(server, key)
       // A snooze silences the announcement, not the bookkeeping: conditions
       // still rise and clear underneath, so nothing double-fires when it ends.
-      const quiet = silent || Boolean(this.snoozedUntil(server))
+      // An unwatched cluster is the same thing without an end date.
+      const quiet = silent || Boolean(this.snoozedUntil(server)) || this.unwatchedServer(server)
 
       this.evaluate(quiet, at, {
         key: `down:${server}`,
@@ -411,6 +544,7 @@ export const useAlertsStore = defineStore('alerts', {
       const heapPercent = entry.hm ? (entry.hu / entry.hm) * 100 : null
       this.evaluate(quiet, at, {
         key: `heap:${server}`,
+        observable: running,
         kind: 'heap',
         active: running && heapPercent !== null && heapPercent >= Number(rule('heapPercent') || 0),
         severity: 'warn',
@@ -432,6 +566,7 @@ export const useAlertsStore = defineStore('alerts', {
       const riseLimit = Number(rule('heapRisePercent') || 0)
       this.evaluate(quiet, at, {
         key: `heaprise:${server}`,
+        observable: running,
         active: riseLimit > 0 && rise !== null && rise >= riseLimit,
         severity: 'warn',
         title: t('{server} heap climbing', { server }),
@@ -452,6 +587,7 @@ export const useAlertsStore = defineStore('alerts', {
 
       this.evaluate(quiet, at, {
         key: `stuck:${server}`,
+        observable: running,
         active: running && entry.sk >= Number(rule('stuckThreads') || 1),
         severity: 'error',
         title:
@@ -469,6 +605,7 @@ export const useAlertsStore = defineStore('alerts', {
 
       this.evaluate(quiet, at, {
         key: `queue:${server}`,
+        observable: running,
         kind: 'queue',
         active: running && entry.q >= Number(rule('queueLength') || 0) && Number(rule('queueLength')) > 0,
         severity: 'warn',
@@ -489,6 +626,7 @@ export const useAlertsStore = defineStore('alerts', {
       const waitLimit = Number(rule('jdbcWaiting') || 0)
       this.evaluate(quiet, at, {
         key: `jdbc:${server}`,
+        observable: running,
         kind: 'jdbc',
         active: running && waitLimit > 0 && waiting >= waitLimit,
         severity: 'warn',
@@ -509,6 +647,7 @@ export const useAlertsStore = defineStore('alerts', {
       const pendingLimit = Number(rule('jmsPending') || 0)
       this.evaluate(quiet, at, {
         key: `jms:${server}`,
+        observable: running,
         kind: 'jms',
         active: running && pendingLimit > 0 && pending >= pendingLimit,
         severity: 'warn',
@@ -524,6 +663,7 @@ export const useAlertsStore = defineStore('alerts', {
 
       this.evaluate(quiet, at, {
         key: `health:${server}`,
+        observable: running,
         kind: 'health',
         active: rule('unhealthy') && running && entry.he && entry.he !== 'OK' && entry.he !== 'UNKNOWN',
         severity: 'warn',
@@ -549,8 +689,17 @@ export const useAlertsStore = defineStore('alerts', {
      * `silent` records the condition without announcing it, which is how the
      * first batch of samples becomes a baseline instead of a burst of alerts,
      * and how a snoozed server stays quiet without losing its edges.
+     *
+     * `observable` is the difference between "no longer true" and "no longer
+     * knowable". Every rule below the server state reads a runtime that a
+     * stopped server does not have, so its condition goes false the moment the
+     * server does — and announcing a recovery for it would put "heap is back
+     * under 90%, garbage collection recovered the memory" in the log directly
+     * underneath "ms1 is failed". The condition is dropped either way, so the
+     * server coming back still raises fresh alerts; only the false good news
+     * is suppressed.
      */
-    evaluate(silent, at, { key, kind, active, recovery, ...alert }) {
+    evaluate(silent, at, { key, kind, active, recovery, observable = true, ...alert }) {
       const state = conditions.get(key) || { since: 0, fired: false }
 
       if (active) {
@@ -564,7 +713,9 @@ export const useAlertsStore = defineStore('alerts', {
         const wasFired = state.fired
         state.since = 0
         state.fired = false
-        if (wasFired && recovery && !silent) this.raise({ key: `${key}:clear`, server: alert.server, ...recovery })
+        if (wasFired && recovery && !silent && observable) {
+          this.raise({ key: `${key}:clear`, server: alert.server, ...recovery })
+        }
       }
 
       conditions.set(key, state)
@@ -589,6 +740,10 @@ export const useAlertsStore = defineStore('alerts', {
       conditions.clear()
       heapTail.clear()
       lastActivation.clear()
+      // Another domain's servers, and its clusters. The list of clusters left
+      // out is a preference and survives, the way the per-server thresholds do.
+      this.membership = {}
+      this.topologyRead = false
       this.primed = false
       this.clear()
     },

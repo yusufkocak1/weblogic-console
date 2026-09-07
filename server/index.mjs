@@ -1085,7 +1085,16 @@ function handleSession(req, res) {
   sendJson(res, 200, sessionState(sessionFor(req)))
 }
 
+/**
+ * The profile list is edited from the Connections page, which the router only
+ * reaches with a live connection — so these ask for a session like every other
+ * state-changing endpoint. Without the check, anything that can reach the
+ * loopback port could rename or delete an operator's saved domains, and the
+ * login screen's own use of profiles is read-only, so nothing needs the gap.
+ */
 async function handleUpdateProfile(req, res, id) {
+  const session = sessionFor(req)
+  if (!session) return sendError(res, 401, 'Not connected')
   const profile = profiles.find((p) => p.id === id)
   if (!profile) return sendError(res, 404, 'No such profile')
   const payload = await readJson(req)
@@ -1095,17 +1104,18 @@ async function handleUpdateProfile(req, res, id) {
   saveProfiles()
 
   // Keep any live connection created from this profile labelled consistently.
-  const session = sessionFor(req)
-  for (const connection of session?.connections.values() || []) {
+  for (const connection of session.connections.values()) {
     if (connection.profileId === id) connection.name = name
   }
   sendJson(res, 200, sessionState(session))
 }
 
 function handleDeleteProfile(req, res, id) {
+  const session = sessionFor(req)
+  if (!session) return sendError(res, 401, 'Not connected')
   profiles = profiles.filter((p) => p.id !== id)
   saveProfiles()
-  sendJson(res, 200, sessionState(sessionFor(req)))
+  sendJson(res, 200, sessionState(session))
 }
 
 async function handleProxy(req, res, restPath) {
@@ -1264,7 +1274,18 @@ server.on('error', (err) => {
   throw err
 })
 
-server.listen(PORT, HOST, () => {
+/**
+ * Only take the port when this file was started, not when it was imported.
+ *
+ * The tests read the sampling and history helpers below directly, and a module
+ * that binds a socket the moment it is imported cannot be read that way.
+ */
+const startedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+
+if (startedDirectly) listen()
+
+function listen() {
+  server.listen(PORT, HOST, () => {
   console.log(`\n  wl-console backend listening on http://${HOST}:${PORT}`)
   console.log(`  ${profiles.length} saved connection profile(s) in ${PROFILES_FILE}`)
   console.log(
@@ -1280,4 +1301,27 @@ server.listen(PORT, HOST, () => {
   if (ALERT_WEBHOOK) console.log(`  Forwarding alerts to ${ALERT_WEBHOOK} (max ${WEBHOOK_MAX_PER_HOUR}/hour)`)
   startSampler()
   console.log('  Open that address in a browser and connect to an AdminServer.\n')
-})
+  })
+}
+
+/**
+ * What the tests read. These are the parts with an answer that can be wrong —
+ * the shape a sample is stored in, the history file format, what an operator
+ * may paste into the host field — as opposed to the request plumbing around
+ * them. Nothing here is used by the running console through this export.
+ */
+export {
+  healthLabel,
+  listen,
+  n,
+  nonZero,
+  parseCookies,
+  parseHistory,
+  profileKey,
+  renderMetrics,
+  samplePayload,
+  sanitiseHost,
+  server,
+  sessions,
+  toSample,
+}

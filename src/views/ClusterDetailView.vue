@@ -8,6 +8,8 @@ import PageHeader from '@/components/PageHeader.vue'
 import StateBadge from '@/components/StateBadge.vue'
 import FactList from '@/components/FactList.vue'
 import SettingsPanel from '@/components/SettingsPanel.vue'
+import InfoTip from '@/components/InfoTip.vue'
+import { useAlertsStore } from '@/stores/alerts'
 import { t } from '@/i18n'
 
 /**
@@ -16,6 +18,14 @@ import { t } from '@/i18n'
  */
 const route = useRoute()
 const name = computed(() => String(route.params.name || ''))
+
+/**
+ * Whether the alert watcher speaks for this cluster. The same switch lives in
+ * the alerts panel, but this is where somebody stands when they decide that
+ * this cluster is not theirs to be woken up about.
+ */
+const alerts = useAlertsStore()
+const watched = computed(() => !alerts.unwatched[name.value])
 
 const { data, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [configs, runtimes, snapshot] = await Promise.all([
@@ -127,6 +137,35 @@ const facts = computed(() => [
             </RouterLink>
           </div>
         </div>
+
+        <label class="mt-4 flex items-start gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            class="mt-0.5"
+            :checked="watched"
+            @change="alerts.watchCluster(name, $event.target.checked)"
+          />
+          <span class="text-sm">
+            <span class="flex items-center gap-1 text-zinc-700 dark:text-zinc-200">
+              {{ $t('Watch this cluster') }}
+              <InfoTip
+                :heading="$t('Watch this cluster')"
+                :text="
+                  $t(
+                    'Alerts about the members of this cluster — a server leaving RUNNING, a heap or queue past its threshold, a stuck thread — are raised only while this is ticked. Untick it for a cluster that somebody else looks after: unlike a snooze it does not expire, and the bell keeps a mark to say part of the domain is out of the watch.',
+                  )
+                "
+              />
+            </span>
+            <span class="block text-xs text-zinc-500 dark:text-zinc-400">
+              {{
+                watched
+                  ? $t('Its members raise alerts like the rest of the domain.')
+                  : $t('Nothing about its members is announced.')
+              }}
+            </span>
+          </span>
+        </label>
       </div>
 
       <SettingsPanel
