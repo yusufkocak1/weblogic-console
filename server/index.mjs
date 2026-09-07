@@ -19,9 +19,9 @@
 import http from 'node:http'
 import https from 'node:https'
 import os from 'node:os'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -32,6 +32,7 @@ const HOST = process.env.WLC_HOST || '127.0.0.1'
 const DIST = fileURLToPath(new URL('../dist', import.meta.url))
 const HOME = process.env.WLC_HOME || path.join(os.homedir(), '.wl-console')
 const PROFILES_FILE = path.join(HOME, 'profiles.json')
+const HISTORY_DIR = path.join(HOME, 'history')
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 // A JSON API body is tiny; an application archive on its way to the deployment
 // endpoint is not, so the two limits are kept apart.
@@ -47,8 +48,44 @@ const SAMPLE_MS = Number(process.env.WLC_SAMPLE_MS ?? 15_000)
 const HISTORY_MINUTES = Number(process.env.WLC_HISTORY_MINUTES || 120)
 const MAX_SAMPLES = SAMPLE_MS > 0 ? Math.max(2, Math.ceil((HISTORY_MINUTES * 60_000) / SAMPLE_MS)) : 0
 // Sampling follows the browser: a session nobody has touched for this long is
-// left alone, so a console forgotten in a background tab stops polling.
+// left alone, so a console forgotten in a background tab stops polling. Set
+// WLC_SAMPLE_ALWAYS=1 on a console that is meant to keep watching regardless —
+// the point of that being that whoever arrives in the morning finds the night
+// in the charts.
 const SAMPLE_IDLE_MS = 15 * 60_000
+const SAMPLE_ALWAYS = process.env.WLC_SAMPLE_ALWAYS === '1'
+/**
+ * The in-memory ring buffer is what the browser draws; this is how long the
+ * same samples survive on disk, so a restart of this process — or of the
+ * machine — does not erase last night. Set WLC_HISTORY_FILE_MINUTES=0 to keep
+ * nothing on disk at all.
+ */
+const HISTORY_FILE_MINUTES = Number(process.env.WLC_HISTORY_FILE_MINUTES ?? 24 * 60)
+/** Rewriting the file on every sample would be silly; every this-many is enough. */
+const COMPACT_EVERY = 240
+/**
+ * Data sources, JTA and JMS cost one more subtree in the same search. On a
+ * domain large enough for that to matter, WLC_SAMPLE_DEPTH=basic goes back to
+ * servers, heap and threads alone.
+ */
+const SAMPLE_DEPTH = process.env.WLC_SAMPLE_DEPTH === 'basic' ? 'basic' : 'full'
+/**
+ * An OpenMetrics endpoint, so a domain this console is already sampling can be
+ * scraped by whatever monitoring stack the site runs. Off unless asked for: it
+ * answers without a console session, and although the process is bound to
+ * loopback, exposing runtime numbers should still be a decision somebody made.
+ */
+const METRICS_TOKEN = process.env.WLC_METRICS_TOKEN || ''
+const METRICS_ENABLED = Boolean(METRICS_TOKEN) || process.env.WLC_METRICS === '1'
+/**
+ * Where alerts go when nobody is looking at the browser. The rules run in the
+ * browser — that is where the thresholds are set — so the console posts what
+ * they raised here and this process forwards it, which is the only half of the
+ * pair that can reach a chat webhook.
+ */
+const ALERT_WEBHOOK = process.env.WLC_ALERT_WEBHOOK || ''
+/** A misbehaving rule must not turn into a thousand webhook calls. */
+const WEBHOOK_MAX_PER_HOUR = Number(process.env.WLC_ALERT_WEBHOOK_MAX_PER_HOUR || 60)
 const COOKIE_NAME = 'wlc_session'
 const REST_BASE = '/management/weblogic/latest'
 
@@ -326,35 +363,76 @@ async function probePermissions(connection) {
 // ---------------------------------------------------------------- history
 
 /**
- * One search that returns every running server's state, heap and thread pool.
+ * One search that returns every running server's state, heap and thread pool —
+ * and, at full depth, the three subsystems a slow server is usually waiting on.
+ *
  * Deliberately narrow: this runs on a timer, so it must stay one small request.
+ * The thread pool answers "is this server busy"; the JDBC pool answers "is it
+ * busy because it is waiting for a database", which is the next question in
+ * almost every investigation and could not be answered from history before.
  */
-const SAMPLE_PAYLOAD = JSON.stringify({
-  links: [],
-  fields: [],
-  children: {
-    serverRuntimes: {
+function samplePayload(depth) {
+  const serverChildren = {
+    JVMRuntime: { links: [], fields: ['heapSizeCurrent', 'heapFreeCurrent', 'heapSizeMax'] },
+    threadPoolRuntime: {
       links: [],
-      fields: ['name', 'state', 'healthState'],
+      fields: [
+        'executeThreadTotalCount',
+        'executeThreadIdleCount',
+        'standbyThreadCount',
+        'stuckThreadCount',
+        'hoggingThreadCount',
+        'queueLength',
+        'pendingUserRequestCount',
+        'throughput',
+      ],
+    },
+  }
+
+  if (depth === 'full') {
+    serverChildren.JDBCServiceRuntime = {
+      links: [],
+      fields: [],
       children: {
-        JVMRuntime: { links: [], fields: ['heapSizeCurrent', 'heapFreeCurrent', 'heapSizeMax'] },
-        threadPoolRuntime: {
+        JDBCDataSourceRuntimeMBeans: {
           links: [],
           fields: [
-            'executeThreadTotalCount',
-            'executeThreadIdleCount',
-            'standbyThreadCount',
-            'stuckThreadCount',
-            'hoggingThreadCount',
-            'queueLength',
-            'pendingUserRequestCount',
-            'throughput',
+            'name',
+            'activeConnectionsCurrentCount',
+            'currCapacity',
+            'waitingForConnectionCurrentCount',
+            'connectionDelayTime',
+            'failuresToReconnectCount',
           ],
         },
       },
+    }
+    // No `fields` filter on JTARuntime: its attributes differ between releases
+    // and naming one a release does not have fails the whole search.
+    serverChildren.JTARuntime = { links: [] }
+    serverChildren.JMSRuntime = {
+      links: [],
+      fields: [],
+      children: {
+        JMSServers: { links: [], fields: ['name', 'messagesCurrentCount', 'messagesPendingCount'] },
+      },
+    }
+  }
+
+  return JSON.stringify({
+    links: [],
+    fields: [],
+    children: {
+      serverRuntimes: {
+        links: [],
+        fields: ['name', 'state', 'healthState', 'activationTime', 'openSocketsCurrentCount'],
+        children: serverChildren,
+      },
     },
-  },
-})
+  })
+}
+
+const SAMPLE_PAYLOAD = samplePayload(SAMPLE_DEPTH)
 
 /** healthState is an object in current releases and a HEALTH_* string in older ones. */
 function healthLabel(health) {
@@ -363,33 +441,207 @@ function healthLabel(health) {
   return String(raw).replace(/^HEALTH_/, '').toUpperCase()
 }
 
+/** Anything WebLogic did not answer with becomes 0 rather than NaN or null. */
+function n(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+/**
+ * Copies only the values worth storing. Zero is the resting value of nearly
+ * every counter added below — no connection waiting, no message pending — and
+ * a buffer that stores it thousands of times is mostly the digit 0. The browser
+ * reads a missing key as zero, which is what it means.
+ */
+function nonZero(values) {
+  const out = {}
+  for (const [key, value] of Object.entries(values)) if (value) out[key] = value
+  return out
+}
+
 /**
  * Keys are short on purpose: one entry is stored per server per interval, and
- * the whole buffer goes to the browser on every poll.
+ * the whole buffer goes to the browser on its first poll.
  */
 function toSample(payload) {
   const servers = {}
   for (const runtime of payload?.serverRuntimes?.items ?? []) {
     if (!runtime?.name) continue
-    const jvm = runtime.JVMRuntime || {}
-    const pool = runtime.threadPoolRuntime || {}
-    const total = Number(pool.executeThreadTotalCount || 0)
-    servers[runtime.name] = {
+    const jvm = runtime.JVMRuntime
+    const pool = runtime.threadPoolRuntime
+
+    const entry = {
       st: runtime.state || 'UNKNOWN',
       he: healthLabel(runtime.healthState),
-      hu: Number(jvm.heapSizeCurrent || 0) - Number(jvm.heapFreeCurrent || 0),
-      hm: Number(jvm.heapSizeMax || jvm.heapSizeCurrent || 0),
-      tt: total,
-      tb: Math.max(0, total - Number(pool.executeThreadIdleCount || 0) - Number(pool.standbyThreadCount || 0)),
-      sk: Number(pool.stuckThreadCount || 0),
-      hg: Number(pool.hoggingThreadCount || 0),
-      q: Number(pool.queueLength || 0),
-      pr: Number(pool.pendingUserRequestCount || 0),
-      tp: Number(pool.throughput || 0),
     }
+
+    // A server that is not running has no runtime subtrees at all, and its
+    // numbers are stored as absent rather than as zero. Zero is a reading —
+    // "this pool had no busy threads" — and a chart given zeros draws a
+    // confident flat line across an outage instead of leaving it blank.
+    if (jvm) {
+      entry.hu = n(jvm.heapSizeCurrent) - n(jvm.heapFreeCurrent)
+      entry.hm = n(jvm.heapSizeMax) || n(jvm.heapSizeCurrent)
+    }
+    if (pool) {
+      const total = n(pool.executeThreadTotalCount)
+      entry.tt = total
+      entry.tb = Math.max(0, total - n(pool.executeThreadIdleCount) - n(pool.standbyThreadCount))
+      entry.sk = n(pool.stuckThreadCount)
+      entry.hg = n(pool.hoggingThreadCount)
+      entry.q = n(pool.queueLength)
+      entry.pr = n(pool.pendingUserRequestCount)
+      entry.tp = n(pool.throughput)
+    }
+    // When this JVM came up. A value that changes between two samples is a
+    // restart, which no other number here reveals.
+    if (runtime.activationTime) entry.ac = n(runtime.activationTime)
+    if (runtime.openSocketsCurrentCount !== undefined) entry.so = n(runtime.openSocketsCurrentCount)
+
+    // Per-pool detail, plus the rollups the monitoring page charts. The rollups
+    // are stored rather than summed in the browser so that a chart of the whole
+    // server costs nothing even when a pool has come or gone in between.
+    const pools = runtime.JDBCServiceRuntime?.JDBCDataSourceRuntimeMBeans?.items ?? []
+    if (pools.length) {
+      const detail = {}
+      let active = 0
+      let capacity = 0
+      let waiting = 0
+      let failures = 0
+      for (const ds of pools) {
+        if (!ds?.name) continue
+        const values = {
+          a: n(ds.activeConnectionsCurrentCount),
+          c: n(ds.currCapacity),
+          w: n(ds.waitingForConnectionCurrentCount),
+          d: n(ds.connectionDelayTime),
+          f: n(ds.failuresToReconnectCount),
+        }
+        active += values.a
+        capacity += values.c
+        waiting += values.w
+        failures += values.f
+        const kept = nonZero(values)
+        // An idle pool is stored as nothing at all; the server entry being
+        // present is what says the reading happened.
+        if (Object.keys(kept).length) detail[ds.name] = kept
+      }
+      Object.assign(entry, nonZero({ dsa: active, dsc: capacity, dsw: waiting, dsf: failures }))
+      if (Object.keys(detail).length) entry.ds = detail
+    }
+
+    const jta = runtime.JTARuntime
+    if (jta) {
+      Object.assign(
+        entry,
+        nonZero({
+          jta: n(jta.activeTransactionsTotalCount),
+          jtc: n(jta.transactionCommittedTotalCount),
+          jtr: n(jta.transactionRolledBackTotalCount),
+        }),
+      )
+    }
+
+    const jmsServers = runtime.JMSRuntime?.JMSServers?.items ?? []
+    if (jmsServers.length) {
+      const detail = {}
+      let current = 0
+      let pending = 0
+      for (const jms of jmsServers) {
+        if (!jms?.name) continue
+        const values = { c: n(jms.messagesCurrentCount), p: n(jms.messagesPendingCount) }
+        current += values.c
+        pending += values.p
+        const kept = nonZero(values)
+        if (Object.keys(kept).length) detail[jms.name] = kept
+      }
+      Object.assign(entry, nonZero({ jmc: current, jmp: pending }))
+      if (Object.keys(detail).length) entry.jm = detail
+    }
+
+    servers[runtime.name] = entry
   }
   return { t: Date.now(), servers }
 }
+
+// ------------------------------------------------------- history on disk
+
+/**
+ * History outlives this process.
+ *
+ * The ring buffer above is gone the moment the console is restarted, and a
+ * restart is exactly when the last hour matters — "it fell over, I restarted
+ * the console, now show me what led up to it". So every sample is also
+ * appended to one line-delimited JSON file per AdminServer identity, and a
+ * connection to that identity reads the file back on the way up.
+ *
+ * The file is keyed by host, port and user rather than by connection id, since
+ * a connection id is new on every login and the history is not.
+ */
+function historyFileFor(connection) {
+  const digest = createHash('sha1').update(profileKey(connection)).digest('hex').slice(0, 16)
+  return path.join(HISTORY_DIR, `${digest}.ndjson`)
+}
+
+/** Parses an NDJSON history file, dropping anything older than the cutoff. */
+function parseHistory(raw, cutoff) {
+  const samples = []
+  for (const line of raw.split('\n')) {
+    if (!line) continue
+    try {
+      const sample = JSON.parse(line)
+      if (sample?.t > cutoff && sample.servers) samples.push(sample)
+    } catch {
+      // A line half-written when the process died. Tolerating that is the whole
+      // reason this format is one sample per line.
+    }
+  }
+  // Two consoles pointed at the same domain interleave their appends, so the
+  // file is not necessarily in order.
+  return samples.sort((a, b) => a.t - b.t)
+}
+
+async function loadHistory(connection) {
+  if (!MAX_SAMPLES || !HISTORY_FILE_MINUTES) return
+  try {
+    const raw = await readFile(connection.historyFile, 'utf8')
+    connection.history = parseHistory(raw, Date.now() - HISTORY_MINUTES * 60_000).slice(-MAX_SAMPLES)
+  } catch {
+    // No file yet, or an unreadable one: the buffer simply starts empty.
+  }
+}
+
+/** Drops what the disk window no longer covers, write-then-rename. */
+async function compactHistoryFile(connection) {
+  try {
+    const raw = await readFile(connection.historyFile, 'utf8')
+    const kept = parseHistory(raw, Date.now() - HISTORY_FILE_MINUTES * 60_000)
+    const tmp = `${connection.historyFile}.tmp`
+    await writeFile(tmp, kept.map((sample) => JSON.stringify(sample)).join('\n') + '\n', { mode: 0o600 })
+    await rename(tmp, connection.historyFile)
+  } catch {
+    // Compaction is housekeeping; failing it must not stop sampling.
+  }
+}
+
+async function persistSample(connection, sample) {
+  if (!HISTORY_FILE_MINUTES) return
+  try {
+    await mkdir(HISTORY_DIR, { recursive: true })
+    await appendFile(connection.historyFile, JSON.stringify(sample) + '\n', { mode: 0o600 })
+    connection.historyAppends = (connection.historyAppends || 0) + 1
+    if (connection.historyAppends % COMPACT_EVERY === 0) await compactHistoryFile(connection)
+  } catch (err) {
+    // Said once per connection: a full or read-only disk must not write one
+    // console line every fifteen seconds.
+    if (!connection.historyDiskWarned) {
+      connection.historyDiskWarned = true
+      console.error(`  Could not write history to ${connection.historyFile}: ${err.message}`)
+    }
+  }
+}
+
+// ------------------------------------------------------------- sampling
 
 async function sampleConnection(connection) {
   try {
@@ -404,11 +656,13 @@ async function sampleConnection(connection) {
       connection.historyError = 'The AdminServer answered ' + upstream.status + ' to the sampling request.'
       return
     }
-    connection.history.push(toSample(JSON.parse(upstream.body.toString('utf8'))))
+    const sample = toSample(JSON.parse(upstream.body.toString('utf8')))
+    connection.history.push(sample)
     if (connection.history.length > MAX_SAMPLES) {
       connection.history.splice(0, connection.history.length - MAX_SAMPLES)
     }
     connection.historyError = null
+    await persistSample(connection, sample)
   } catch (err) {
     // A domain that is down must not write one console line per interval; the
     // last reason is reported to the UI instead.
@@ -422,7 +676,7 @@ function connectionsToSample() {
   const out = []
   const cutoff = Date.now() - SAMPLE_IDLE_MS
   for (const session of sessions.values()) {
-    if (session.lastUsed < cutoff) continue
+    if (!SAMPLE_ALWAYS && session.lastUsed < cutoff) continue
     for (const connection of session.connections.values()) {
       if (seen.has(connection.id)) continue
       seen.add(connection.id)
@@ -430,6 +684,15 @@ function connectionsToSample() {
     }
   }
   return out
+}
+
+/** Every live connection, whether or not its session is still being used. */
+function allConnections() {
+  const seen = new Map()
+  for (const session of sessions.values()) {
+    for (const connection of session.connections.values()) seen.set(connection.id, connection)
+  }
+  return [...seen.values()]
 }
 
 let sampling = false
@@ -459,9 +722,186 @@ function handleHistory(req, res, url) {
     sampling: SAMPLE_MS > 0,
     intervalMs: SAMPLE_MS,
     retentionMs: SAMPLE_MS * MAX_SAMPLES,
+    fileRetentionMs: HISTORY_FILE_MINUTES * 60_000,
+    depth: SAMPLE_DEPTH,
+    /** Whether raising an alert can also reach somebody who is not looking. */
+    webhook: Boolean(ALERT_WEBHOOK),
     error: connection.historyError || null,
     samples: connection.history.filter((sample) => sample.t > since),
   })
+}
+
+// ------------------------------------------------------------- metrics
+
+/** Prometheus wants label values escaped. */
+const escapeLabel = (value) => String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ')
+
+/**
+ * The newest sample of every live connection, in Prometheus text format.
+ *
+ * This console is already asking each AdminServer the one question a scraper
+ * would ask, on an interval a scraper would use. Publishing the answer costs
+ * one endpoint and saves the site from running a second collector — and it
+ * makes the history keepable for far longer than a browser tab, in whatever
+ * the site already uses for that.
+ */
+function renderMetrics() {
+  const gauges = {
+    wlc_server_up: { help: '1 when the server is RUNNING.', rows: [] },
+    wlc_server_healthy: { help: '1 when the server reports health OK.', rows: [] },
+    wlc_heap_used_bytes: { help: 'Java heap in use.', rows: [] },
+    wlc_heap_max_bytes: { help: 'Java heap maximum (-Xmx).', rows: [] },
+    wlc_threads_total: { help: 'Execute threads in the self-tuning pool.', rows: [] },
+    wlc_threads_busy: { help: 'Execute threads currently running a request.', rows: [] },
+    wlc_threads_stuck: { help: 'Threads past the stuck-thread timeout.', rows: [] },
+    wlc_threads_hogging: { help: 'Threads holding on much longer than normal.', rows: [] },
+    wlc_queue_length: { help: 'Requests waiting for an execute thread.', rows: [] },
+    wlc_pending_requests: { help: 'User requests not yet handed to a thread.', rows: [] },
+    wlc_throughput_requests: { help: 'Requests completed per second.', rows: [] },
+    wlc_open_sockets: { help: 'Sockets the server currently holds open.', rows: [] },
+    wlc_jdbc_active_connections: { help: 'JDBC connections in use.', rows: [] },
+    wlc_jdbc_capacity: { help: 'Connections the JDBC pool currently holds.', rows: [] },
+    wlc_jdbc_waiting: { help: 'Threads waiting for a JDBC connection.', rows: [] },
+    wlc_jta_active_transactions: { help: 'Transactions in flight.', rows: [] },
+    wlc_jms_messages_pending: { help: 'JMS messages not yet acknowledged.', rows: [] },
+  }
+  const counters = {
+    wlc_jta_transactions_committed_total: { help: 'Transactions committed since server start.', rows: [] },
+    wlc_jta_transactions_rolled_back_total: { help: 'Transactions rolled back since server start.', rows: [] },
+    wlc_jdbc_reconnect_failures_total: { help: 'Failures to reconnect since server start.', rows: [] },
+  }
+
+  for (const connection of allConnections()) {
+    const sample = connection.history[connection.history.length - 1]
+    if (!sample) continue
+    const domain = escapeLabel(connection.domain?.name || connection.name || connection.host)
+    for (const [server, entry] of Object.entries(sample.servers)) {
+      const labels = `{domain="${domain}",server="${escapeLabel(server)}"}`
+      const push = (bucket, value) => bucket.rows.push(`${labels} ${value}`)
+      push(gauges.wlc_server_up, entry.st === 'RUNNING' ? 1 : 0)
+      // A server that is down reports that it is down and nothing else. A
+      // scraper stores an absent series as a gap and a zero as a measurement,
+      // so publishing zeros here would put "heap fell to 0" in somebody's
+      // dashboard every time a server was stopped.
+      if (entry.tt === undefined && entry.hu === undefined) continue
+      push(gauges.wlc_server_healthy, entry.he === 'OK' ? 1 : 0)
+      push(gauges.wlc_heap_used_bytes, entry.hu || 0)
+      push(gauges.wlc_heap_max_bytes, entry.hm || 0)
+      push(gauges.wlc_threads_total, entry.tt || 0)
+      push(gauges.wlc_threads_busy, entry.tb || 0)
+      push(gauges.wlc_threads_stuck, entry.sk || 0)
+      push(gauges.wlc_threads_hogging, entry.hg || 0)
+      push(gauges.wlc_queue_length, entry.q || 0)
+      push(gauges.wlc_pending_requests, entry.pr || 0)
+      push(gauges.wlc_throughput_requests, entry.tp || 0)
+      push(gauges.wlc_open_sockets, entry.so || 0)
+      push(gauges.wlc_jta_active_transactions, entry.jta || 0)
+      push(gauges.wlc_jms_messages_pending, entry.jmp || 0)
+      push(counters.wlc_jta_transactions_committed_total, entry.jtc || 0)
+      push(counters.wlc_jta_transactions_rolled_back_total, entry.jtr || 0)
+
+      // Per-pool rather than per-server: "which database" is the question a
+      // waiting connection raises, and a rollup cannot answer it.
+      for (const [name, pool] of Object.entries(entry.ds || {})) {
+        const poolLabels = `{domain="${domain}",server="${escapeLabel(server)}",data_source="${escapeLabel(name)}"}`
+        gauges.wlc_jdbc_active_connections.rows.push(`${poolLabels} ${pool.a || 0}`)
+        gauges.wlc_jdbc_capacity.rows.push(`${poolLabels} ${pool.c || 0}`)
+        gauges.wlc_jdbc_waiting.rows.push(`${poolLabels} ${pool.w || 0}`)
+        counters.wlc_jdbc_reconnect_failures_total.rows.push(`${poolLabels} ${pool.f || 0}`)
+      }
+    }
+  }
+
+  const lines = []
+  for (const [type, bucket] of [
+    ['gauge', gauges],
+    ['counter', counters],
+  ]) {
+    for (const [name, metric] of Object.entries(bucket)) {
+      if (!metric.rows.length) continue
+      lines.push(`# HELP ${name} ${metric.help}`, `# TYPE ${name} ${type}`)
+      for (const row of metric.rows) lines.push(name + row)
+    }
+  }
+  return lines.join('\n') + '\n'
+}
+
+function handleMetrics(req, res, url) {
+  if (!METRICS_ENABLED) {
+    return sendError(
+      res,
+      404,
+      'Metrics are not enabled',
+      'Start the console with WLC_METRICS=1, or with WLC_METRICS_TOKEN set, to publish them.',
+    )
+  }
+  if (METRICS_TOKEN) {
+    const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
+    const given = bearer || url.searchParams.get('token') || ''
+    if (given !== METRICS_TOKEN) return sendError(res, 401, 'Invalid metrics token')
+  }
+  const body = renderMetrics()
+  res.writeHead(200, {
+    'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+  })
+  res.end(body)
+}
+
+// ------------------------------------------------------------- webhook
+
+/** When recent forwards happened, so a rule stuck on can be capped. */
+let webhookSent = []
+
+/**
+ * Alerts reach somebody who is not looking at the browser.
+ *
+ * The rules themselves stay in the browser — that is where their thresholds
+ * are set and where the samples are already being read — so the console posts
+ * what they raised here, and this process, which is the half that can reach a
+ * chat webhook, forwards it.
+ */
+async function handleNotify(req, res) {
+  const session = sessionFor(req)
+  if (!session) return sendError(res, 401, 'Not connected')
+  const payload = await readJson(req)
+  if (!ALERT_WEBHOOK) return sendJson(res, 200, { forwarded: false, reason: 'not-configured' })
+
+  const now = Date.now()
+  webhookSent = webhookSent.filter((at) => at > now - 3_600_000)
+  if (webhookSent.length >= WEBHOOK_MAX_PER_HOUR) {
+    return sendJson(res, 200, { forwarded: false, reason: 'rate-limited' })
+  }
+  webhookSent.push(now)
+
+  const title = String(payload.title || '').slice(0, 500)
+  const detail = String(payload.detail || '').slice(0, 2000)
+  const body = {
+    source: 'wl-console',
+    severity: String(payload.severity || 'warn'),
+    title,
+    detail,
+    server: String(payload.server || '').slice(0, 200),
+    domain: String(payload.domain || '').slice(0, 200),
+    at: now,
+    // A chat webhook that reads nothing else almost always reads `text`.
+    text: [title, detail].filter(Boolean).join(' — ').slice(0, 2000),
+  }
+
+  try {
+    const upstream = await fetch(ALERT_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    })
+    return sendJson(res, 200, { forwarded: upstream.ok, status: upstream.status })
+  } catch (err) {
+    // The alert is already on screen; the forward failing is worth reporting
+    // but not worth failing the request over.
+    return sendJson(res, 200, { forwarded: false, reason: err?.message || 'unreachable' })
+  }
 }
 
 // ---------------------------------------------------------------- connections
@@ -519,6 +959,7 @@ async function handleCreateConnection(req, res) {
     history: [],
     historyError: null,
   }
+  connection.historyFile = historyFileFor(connection)
 
   let upstream
   try {
@@ -596,6 +1037,12 @@ async function handleCreateConnection(req, res) {
 
   session.connections.set(connection.id, connection)
   session.activeId = connection.id
+
+  // Whatever this console already recorded about this AdminServer, from before
+  // the last restart. Awaited rather than left running: the browser polls for
+  // history immediately after connecting, and an empty first answer would tell
+  // it there is none.
+  await loadHistory(connection)
 
   sendJson(res, 200, sessionState(session), setCookie ? { 'Set-Cookie': setCookie } : {})
 }
@@ -775,6 +1222,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === '/api/session' && method === 'GET') return handleSession(req, res)
     if (pathname === '/api/history' && method === 'GET') return handleHistory(req, res, url)
+    if (pathname === '/api/notify' && method === 'POST') return await handleNotify(req, res)
+    if (pathname === '/metrics' && method === 'GET') return handleMetrics(req, res, url)
     if (pathname === '/api/connections' && method === 'POST') return await handleCreateConnection(req, res)
     if (pathname === '/api/disconnect' && method === 'POST') return handleDisconnectAll(req, res)
 
@@ -820,9 +1269,15 @@ server.listen(PORT, HOST, () => {
   console.log(`  ${profiles.length} saved connection profile(s) in ${PROFILES_FILE}`)
   console.log(
     SAMPLE_MS
-      ? `  Sampling runtime every ${SAMPLE_MS / 1000}s, keeping ${HISTORY_MINUTES} minutes of history`
+      ? `  Sampling runtime every ${SAMPLE_MS / 1000}s (${SAMPLE_DEPTH}), keeping ${HISTORY_MINUTES} minutes in memory` +
+          (HISTORY_FILE_MINUTES ? ` and ${HISTORY_FILE_MINUTES} minutes in ${HISTORY_DIR}` : ', nothing on disk')
       : '  Runtime sampling is off (WLC_SAMPLE_MS=0) — charts stay empty',
   )
+  if (SAMPLE_MS && SAMPLE_ALWAYS) console.log('  Sampling continues even when no browser is using the session')
+  if (METRICS_ENABLED) {
+    console.log(`  Publishing Prometheus metrics on http://${HOST}:${PORT}/metrics${METRICS_TOKEN ? ' (token required)' : ''}`)
+  }
+  if (ALERT_WEBHOOK) console.log(`  Forwarding alerts to ${ALERT_WEBHOOK} (max ${WEBHOOK_MAX_PER_HOUR}/hour)`)
   startSampler()
   console.log('  Open that address in a browser and connect to an AdminServer.\n')
 })

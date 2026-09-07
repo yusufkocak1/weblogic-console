@@ -419,8 +419,6 @@ export default {
   '{server} is running again': '{server} yeniden çalışıyor',
   'The server is back in the RUNNING state.': 'Server yeniden RUNNING durumunda.',
   '{server} heap at {percent}%': '{server} heap kullanımı %{percent}',
-  'Heap in use has passed {threshold}% of the JVM maximum. Sustained, this shows up as slowness long before an OutOfMemoryError.':
-    'Kullanımdaki heap, JVM üst sınırının %{threshold} değerini aştı. Bu durum sürerse, OutOfMemoryError alınmadan çok önce yavaşlık olarak kendini gösterir.',
   '{server} heap is back under {threshold}%': '{server} heap kullanımı yeniden %{threshold} altında',
   'Garbage collection recovered the memory.': 'Garbage collection belleği geri kazandı.',
   '{server} has 1 stuck thread': '{server} üzerinde 1 takılmış thread var',
@@ -1153,12 +1151,8 @@ export default {
   'How to work out why a server feels slow': 'Bir server neden yavaş, nasıl anlaşılır',
   'Heap red or amber and staying there? The JVM is short of memory. It will spend its time in garbage collection long before it throws OutOfMemoryError, so this shows up as slowness first.':
     "Heap kırmızı ya da sarı ve öyle mi kalıyor? JVM'in belleği yetmiyordur. OutOfMemoryError vermeden çok önce zamanını garbage collection'da geçirir; bu yüzden önce yavaşlık olarak kendini gösterir.",
-  'Stuck above zero? Requests are blocked on something outside the server — a database, a remote call, a lock. Check Data Sources for waiting connections, then read Logs on that server.':
-    "Takılmış sayısı sıfırın üzerinde mi? İstekler server dışında bir şeyde bloke olmuştur — bir veritabanı, uzak bir çağrı, bir kilit. Bekleyen bağlantılar için Data Source'lara bakın, sonra o server'ın loglarını okuyun.",
   'Thread pool bar near full with a growing queue? More work is arriving than the server can finish. Look for a slow downstream system before adding capacity.':
     "Thread pool çubuğu doluya yakın ve kuyruk büyüyor mu? Server'ın bitirebileceğinden çok iş geliyordur. Kapasite eklemeden önce yavaş bir alt sistem arayın.",
-  'The line under each bar is the last couple of hours, sampled in the background — so the direction is there the moment you open the page, without having to sit and watch it. A heap that sawtooths is healthy garbage collection; one that climbs in steps and never returns is a leak.':
-    'Her çubuğun altındaki çizgi son birkaç saattir ve arka planda örneklenir — böylece sayfayı açtığınız anda gidişat karşınızdadır, oturup izlemeniz gerekmez. Testere dişi çizen bir heap sağlıklı garbage collection demektir; basamak basamak yükselip hiç geri dönmeyen ise sızıntıdır.',
   'No server is running, so there is no runtime to monitor.':
     'Çalışan server yok, dolayısıyla izlenecek bir runtime da yok.',
   'Heap': 'Heap',
@@ -2028,4 +2022,183 @@ export default {
 
   // ----------------------------------------------------------- alerts: last rule 
   'Running server reports unhealthy': 'Çalışan server sağlıksız bildirirse',
+
+  // ------------------------------------------------- monitoring: chart ranges
+  '15 min': '15 dk',
+  '6 hours': '6 saat',
+  'All': 'Tümü',
+  'How much history the charts show': 'Grafiklerin ne kadarlık geçmişi gösterdiği',
+  'Draw the charts over this much history': 'Grafikleri bu kadarlık geçmiş üzerinden çiz',
+  'The range this chart is drawn against': 'Bu grafiğin çizildiği değer aralığı',
+  'too little history': 'geçmiş yetersiz',
+  'flat': 'düz',
+  '{points} points/h': 'saatte {points} puan',
+  '{count}/h': 'saatte {count}',
+
+  // -------------------------------------------- monitoring: metric names (CSV)
+  'Heap used': 'Kullanılan heap',
+  'Heap maximum': 'Heap üst sınırı',
+  'Threads total': 'Toplam thread',
+  'Threads busy': 'Meşgul thread',
+  'Hogging threads': 'Uzun süren threadler',
+  'Queue length': 'Kuyruk uzunluğu',
+  'Pending requests': 'Bekleyen istekler',
+  'Open sockets': 'Açık socket',
+  'JDBC connections in use': 'Kullanımdaki JDBC bağlantıları',
+  'JDBC pool capacity': 'JDBC pool kapasitesi',
+  'Waiting for a JDBC connection': 'JDBC bağlantısı bekleyen',
+  'Active transactions': 'Aktif transaction',
+  'Rolled back transactions': "Rollback edilen transaction'lar",
+  'JMS messages pending': 'Bekleyen JMS mesajı',
+  'Heap used (bytes)': 'Kullanılan heap (byte)',
+  'Heap maximum (bytes)': 'Heap üst sınırı (byte)',
+  'Heap %': 'Heap %',
+
+  // ------------------------------------------------- monitoring: page controls
+  'Per server': 'Server bazında',
+  'Compare servers': "Server'ları karşılaştır",
+  'Draw every server on one pair of axes instead of one card each. This is how an outlier in a cluster becomes visible.':
+    "Her server'ı ayrı bir kart yerine tek bir eksen takımında çizer. Bir cluster içindeki sapan server ancak böyle görünür hâle gelir.",
+  'Export': 'Dışa aktar',
+  'Save the readings behind these charts as CSV — one row per server per sample':
+    'Bu grafiklerin arkasındaki ölçümleri CSV olarak kaydeder — her örnek için her server bir satır',
+  'Runtime sampling is switched off in the backend (WLC_SAMPLE_MS=0), so these charts stay empty.':
+    "Backend'de runtime örnekleme kapalı (WLC_SAMPLE_MS=0), bu yüzden bu grafikler boş kalır.",
+
+  // ----------------------------------------------------- monitoring: help text
+  'Stuck above zero? Requests are blocked on something outside the server — a database, a remote call, a lock. The JDBC line on the same card says whether it is the database.':
+    "Stuck sıfırın üstünde mi? İstekler server dışında bir şeyde bloke olmuş demektir — bir veritabanı, uzak bir çağrı, bir kilit. Aynı karttaki JDBC çizgisi, sorunun veritabanı olup olmadığını söyler.",
+  'The charts cover the range chosen above, sampled in the background — so the direction is there the moment you open the page, without having to sit and watch it. Hover any line for the reading and the moment it was taken. A break in a line is time nobody was sampling; a dotted vertical line is a restart or a change made from this console.':
+    'Grafikler yukarıda seçilen aralığı kapsar ve arka planda örneklenir — yani sayfayı açtığınız anda gidişat oradadır, oturup izlemeniz gerekmez. Herhangi bir çizginin üzerine gelin, o anki değeri ve ölçüldüğü zamanı görün. Çizgideki kopukluk, kimsenin örnekleme yapmadığı zamandır; noktalı dikey çizgi ise bir restart ya da bu konsoldan yapılmış bir değişikliktir.',
+  'Under each heap line is a dashed floor: the lowest point garbage collection got back to. A sawtooth over a flat floor is a healthy server whatever its peaks look like. A floor that climbs is memory that is never coming back, and it is worth acting on long before the bar turns red.':
+    "Her heap çizgisinin altında kesikli bir taban vardır: garbage collection'ın geri inebildiği en düşük seviye. Düz bir tabanın üzerindeki testere dişi, tepe noktaları nasıl görünürse görünsün sağlıklı bir server demektir. Yükselen bir taban ise geri gelmeyen bellektir ve bar kırmızıya dönmeden çok önce üzerine gitmeye değer.",
+
+  // ------------------------------------------------- monitoring: comparison
+  'Heap across the domain': 'Domain genelinde heap',
+  'Every running server as a percentage of its own maximum, so servers with different -Xmx values can still be compared. In a cluster the lines should broadly agree; one that sits above the others is taking more work, holding more session state, or leaking.':
+    "Çalışan her server, kendi üst sınırının yüzdesi olarak — böylece farklı -Xmx değerlerine sahip server'lar da karşılaştırılabilir. Bir cluster'da çizgiler kabaca birbirini takip etmelidir; diğerlerinin üzerinde seyreden bir çizgi ya daha çok iş alıyor, ya daha çok session state tutuyor, ya da sızdırıyordur.",
+  'Throughput across the domain': 'Domain genelinde iş hacmi',
+  'Requests completed per second. Read together with the busy threads above: more threads and the same throughput means each request got slower, which points outward — at a database or a remote call — rather than at the server.':
+    'Saniyede tamamlanan istek sayısı. Yukarıdaki meşgul threadlerle birlikte okuyun: thread sayısı artarken iş hacmi aynı kalıyorsa her istek yavaşlamış demektir ve bu, server’ı değil dışarıyı — bir veritabanını ya da uzak bir çağrıyı — işaret eder.',
+  'Requests completed per second — {window}': 'Saniyede tamamlanan istekler — {window}',
+  'Requests queued for a connection from a data source pool. Anything but zero here explains busy threads that are not doing any work: they are queuing for the database, not running.':
+    "Bir data source pool'undan bağlantı bekleyen istekler. Buradaki sıfırdan farklı her değer, hiç iş yapmadığı hâlde meşgul görünen threadleri açıklar: çalışmıyorlar, veritabanı için sıra bekliyorlar.",
+  'Requests waiting for a JDBC connection — {window}': 'JDBC bağlantısı bekleyen istekler — {window}',
+
+  // ------------------------------------------------- monitoring: derived reads
+  'Floor': 'Taban',
+  'Heap floor': 'Heap tabanı',
+  'The lowest level garbage collection has been getting back to, and how fast that level is moving. A floor rising steadily is a leak; the current reading cannot tell you that, because a busy healthy server sits high too.':
+    "Garbage collection'ın geri inebildiği en düşük seviye ve bu seviyenin ne hızla hareket ettiği. İstikrarlı biçimde yükselen bir taban sızıntı demektir; anlık değer bunu size söyleyemez, çünkü meşgul ama sağlıklı bir server da yüksekte durur.",
+  'Collections': 'Collection sayısı',
+  'How often the heap has visibly dropped, per hour — garbage collection, counted from the samples. WebLogic does not report the JVM’s own count over REST, but the rate answers the same question: a server collecting constantly is under memory pressure however low its current reading is.':
+    "Heap'in saatte kaç kez gözle görülür biçimde düştüğü — örneklerden sayılan garbage collection. WebLogic, JVM'in kendi sayacını REST üzerinden bildirmez ama bu oran aynı soruyu cevaplar: sürekli collection yapan bir server, anlık değeri ne kadar düşük olursa olsun bellek baskısı altındadır.",
+  'Saturated': 'Doygunluk',
+  'How much of the shown range the pool spent at 90% busy or more. This is the difference between a peak you happened to catch and a server that has been full all morning — and it is the number to quote when asking for more capacity.':
+    "Pool'un, gösterilen aralığın ne kadarını %90 ve üzeri meşgulken geçirdiği. Denk geldiğiniz bir tepe ile sabahtan beri dolu olan bir server arasındaki fark budur — ve daha fazla kapasite isterken gösterilecek sayı da budur.",
+  'Per busy thread': 'Meşgul thread başına',
+  'Throughput divided by the threads producing it. It separates the two reasons a pool fills up: more requests arriving, which leaves this steady, and each request taking longer, which makes it fall.':
+    "İş hacminin, onu üreten thread sayısına bölümü. Bir pool'un dolmasının iki nedenini ayırır: daha çok istek gelmesi bu değeri sabit bırakır, her isteğin daha uzun sürmesi ise düşürür.",
+
+  // ---------------------------------------------------- monitoring: JDBC pools
+  'JDBC pools': "JDBC pool'ları",
+  "Connections in use across this server's data sources, and requests queued for one. Threads waiting here are the commonest reason a thread pool fills up while the server itself is doing nothing, and it is why a stuck thread so often turns out to be a database problem.":
+    "Bu server'ın data source'larında kullanımdaki bağlantılar ve bağlantı bekleyen istekler. Burada bekleyen threadler, server'ın kendisi hiçbir şey yapmazken thread pool'un dolmasının en yaygın nedenidir; takılmış bir thread'in bu kadar sık veritabanı sorunu çıkmasının sebebi de budur.",
+  'Open the Data Sources page, where each pool can be tested':
+    "Her pool'un test edilebildiği Data Sources sayfasını açar",
+  '{active} in use of {capacity}': '{capacity} bağlantının {active} tanesi kullanımda',
+  'In use': 'Kullanımda',
+  'JDBC connections in use, and requests waiting for one — {window}':
+    'Kullanımdaki JDBC bağlantıları ve bağlantı bekleyen istekler — {window}',
+  '{count} request(s) are queued for a connection right now.':
+    'Şu anda {count} istek bağlantı için sırada bekliyor.',
+  'Requests are queued for JDBC connections on at least one server. Before adding threads or memory, check the pool sizes and the database on the Data Sources page — thread pressure caused by a slow database is not fixed by more threads.':
+    "En az bir server'da JDBC bağlantısı için bekleyen istekler var. Thread ya da bellek eklemeden önce Data Sources sayfasından pool boyutlarını ve veritabanını kontrol edin — yavaş bir veritabanının yarattığı thread baskısı, thread ekleyerek çözülmez.",
+  'Alerts about this server are snoozed. Un-snooze it from the bell in the top bar.':
+    "Bu server hakkındaki uyarılar ertelenmiş durumda. Üst çubuktaki zilden yeniden açabilirsiniz.",
+  'snoozed': 'ertelendi',
+
+  // --------------------------------------------------- server detail: history
+  'Restarted': 'Yeniden başlatıldı',
+  'Collected in the background by the console process, whether or not this page was open, and kept on disk so a restart of the console does not erase it. Hover any line for the reading and the moment it was taken.':
+    'Bu sayfa açık olsun olmasın konsol süreci tarafından arka planda toplanır ve diskte tutulur; böylece konsolun yeniden başlaması geçmişi silmez. Herhangi bir çizginin üzerine gelin, o anki değeri ve ölçüldüğü zamanı görün.',
+  'floor {floor}%, {collections} collections/h': 'taban %{floor}, saatte {collections} collection',
+  'Heap used as a percentage of the maximum': "Heap kullanımının üst sınıra oranı",
+  '{percent}% of the range saturated': 'Aralığın %{percent} kadarı doygun',
+  'Busy': 'Meşgul',
+  'Queued': 'Kuyrukta',
+  'Threads executing requests, and requests waiting for one':
+    'İstek işleyen threadler ve thread bekleyen istekler',
+  'Requests completed per second': 'Saniyede tamamlanan istekler',
+  '{count} data source(s)': '{count} data source',
+  'JDBC connections in use, and requests waiting for one':
+    'Kullanımdaki JDBC bağlantıları ve bağlantı bekleyen istekler',
+
+  // ------------------------------------------------------- alerts: thresholds
+  'A level must hold for': 'Bir seviye şu kadar sürmeli',
+  'How long heap, queue, JDBC and health have to stay past their threshold before an alert is raised. A heap touching 91% for one sample during a garbage collection is not news; the same heap still at 91% a minute later is. Events — a server leaving RUNNING, a thread going stuck, a restart — are always announced at once.':
+    "Heap, kuyruk, JDBC ve sağlık değerlerinin, bir uyarı üretilmeden önce eşiğin üstünde ne kadar kalması gerektiği. Bir garbage collection sırasında tek bir örnekte %91'e değen heap haber değil; bir dakika sonra hâlâ %91'de olan heap ise haberdir. Olaylar — bir server'ın RUNNING'den çıkması, bir thread'in takılması, bir restart — her zaman anında bildirilir.",
+  'at once': 'anında',
+  '30 seconds': '30 saniye',
+  '1 minute': '1 dakika',
+  '2 minutes': '2 dakika',
+  'Heap climbs by': 'Heap şu kadar yükselirse',
+  'Percentage points the heap may rise inside the window below without coming back down. This is the rule that catches a leak while there is still room to act — a fixed ceiling by definition only fires once the memory is nearly gone. 0 turns it off.':
+    "Heap'in, aşağıdaki süre içinde geri inmeden yükselebileceği yüzde puanı. Bir sızıntıyı hâlâ hareket alanı varken yakalayan kural budur — sabit bir tavan, tanımı gereği ancak bellek neredeyse tükendiğinde tetiklenir. 0 kuralı kapatır.",
+  'pts in': 'puan /',
+  'min': 'dk',
+  'Waiting for a JDBC connection at or above': 'JDBC bağlantısı bekleyen istek şu değerde veya üstündeyse',
+  'Requests queued for a connection from any data source pool on the server. This is where a thread pool filling up usually turns out to have started, and it is worth its own alert because the thread numbers alone point at the wrong place. 0 turns it off.':
+    "Server'daki herhangi bir data source pool'undan bağlantı bekleyen istekler. Dolan bir thread pool'un hikâyesi genellikle burada başlar ve bu kendi başına bir uyarıyı hak eder, çünkü yalnızca thread sayıları yanlış yeri işaret eder. 0 kuralı kapatır.",
+  'JMS messages pending at or above': 'Bekleyen JMS mesajı şu değerde veya üstündeyse',
+  'Server restarted': 'Server yeniden başlatıldıysa',
+  'The JVM start time changed between two samples, so the process went away and came back. Nothing else in a sample reveals this: a server that crashes and is restarted looks, in every other number, like one that simply got quieter.':
+    "İki örnek arasında JVM'in başlangıç zamanı değişti, yani süreç gitti ve geri geldi. Bir örnekteki başka hiçbir şey bunu ele vermez: çöküp yeniden başlatılan bir server, diğer bütün sayılarda sadece sakinleşmiş bir server gibi görünür.",
+  'Per-server thresholds': 'Server bazında eşikler',
+  'What one server may do that the rest may not. An AdminServer sitting at 85% heap is ordinary and a managed server doing the same is not, and without this the only way to stop the false alarm is to raise the threshold for everybody.':
+    "Bir server'ın yapabileceği ama diğerlerinin yapamayacağı şey. %85 heap'te duran bir AdminServer olağandır, aynısını yapan bir managed server değildir; bu olmadan yanlış alarmı susturmanın tek yolu eşiği herkes için yükseltmektir.",
+  'Choose a server…': 'Bir server seçin…',
+  'An empty box uses the domain-wide value above.': 'Boş bırakılan kutu, yukarıdaki domain geneli değeri kullanır.',
+  'Back to the domain-wide thresholds for this server':
+    "Bu server'ı domain geneli eşiklere geri döndürür",
+  'Remove': 'Kaldır',
+  'Send to the configured webhook': "Tanımlı webhook'a gönder",
+  'Reaches somebody who has no browser open': 'Tarayıcısı açık olmayan birine de ulaşır',
+  'Start the console with WLC_ALERT_WEBHOOK set to a URL and these alerts can also be posted there, for when nobody has the console open.':
+    'Konsolu WLC_ALERT_WEBHOOK bir URL olacak şekilde başlatırsanız, kimse konsolu açık tutmadığında bu uyarılar oraya da gönderilebilir.',
+
+  // ------------------------------------------------------------ alerts: snooze
+  'Snoozed': 'Ertelenenler',
+  'Some servers are snoozed': "Bazı server'lar ertelenmiş durumda",
+  'until {time}': '{time} saatine kadar',
+  'Wake': 'Uyandır',
+  'Snooze…': 'Ertele…',
+  'Stop announcing anything about {server} for a while':
+    '{server} hakkında bir süre hiçbir şey bildirilmesin',
+  'Until tomorrow': 'Yarına kadar',
+
+  // ------------------------------------------------------------- alerts: rules
+  '{server} restarted': '{server} yeniden başlatıldı',
+  'This JVM started again at {time}. If nobody restarted it, the process is failing and being brought back.':
+    'Bu JVM {time} saatinde yeniden başladı. Kimse yeniden başlatmadıysa süreç çöküyor ve geri getiriliyor demektir.',
+  'Heap in use has passed {threshold}% of the JVM maximum for {minutes} min. Sustained, this shows up as slowness long before an OutOfMemoryError.':
+    "Kullanımdaki heap, {minutes} dk boyunca JVM üst sınırının %{threshold} değerini aştı. Bu durum sürerse, OutOfMemoryError'dan çok önce yavaşlık olarak kendini gösterir.",
+  '{server} heap climbing': '{server} heap yükseliyor',
+  'Heap has risen {points} points in the last {minutes} min without coming back down. That is the shape of a leak, whatever the current level is.':
+    'Heap son {minutes} dk içinde geri inmeden {points} puan yükseldi. Mevcut seviye ne olursa olsun bu bir sızıntının şeklidir.',
+  '{server} heap settled': '{server} heap yerine oturdu',
+  'The heap came back down; garbage collection is keeping up again.':
+    "Heap geri indi; garbage collection yeniden yetişiyor.",
+  '{server} queue has drained': '{server} kuyruğu boşaldı',
+  'Requests are no longer waiting for a thread.': 'İstekler artık thread beklemiyor.',
+  '{server} is waiting for JDBC connections': '{server} JDBC bağlantısı bekliyor',
+  '{count} request(s) are queued for a connection from a data source pool. Either the pool is too small or the database is answering slowly.':
+    "Bir data source pool'undan bağlantı için {count} istek sırada bekliyor. Ya pool küçük kalıyor ya da veritabanı yavaş cevap veriyor.",
+  '{server} is no longer waiting for JDBC connections': '{server} artık JDBC bağlantısı beklemiyor',
+  'Connections are available again.': 'Bağlantılar yeniden müsait.',
+  '{server} has {count} JMS messages pending': '{server} üzerinde {count} JMS mesajı bekliyor',
+  'Messages are sitting unacknowledged. A consumer has probably stopped or slowed down.':
+    'Mesajlar onaylanmadan bekliyor. Muhtemelen bir consumer durmuş ya da yavaşlamıştır.',
+  '{server} JMS messages are clearing': '{server} JMS mesajları temizleniyor',
+  'Pending messages are back under the threshold.': 'Bekleyen mesajlar yeniden eşiğin altına indi.',
 }

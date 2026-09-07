@@ -21,13 +21,7 @@ const connection = useConnectionStore()
 // still has an hour of heap behind it.
 const history = useHistoryStore()
 
-const historyWindow = computed(() => {
-  const minutes = Math.round(history.span / 60000)
-  if (!minutes) return t('no history yet')
-  return minutes < 60
-    ? t('last {minutes} min', { minutes })
-    : t('last {hours} h', { hours: (minutes / 60).toFixed(1) })
-})
+const historyWindow = computed(() => (history.span ? history.windowLabel : t('no history yet')))
 
 const { data, error, loading, refreshing, lastUpdated, reload } = useResource(async ({ signal }) => {
   const [snapshot, servers, clusters, deployments] = await Promise.all([
@@ -45,8 +39,13 @@ const servers = computed(() => {
   const lifecycles = new Map(items(data.value?.snapshot?.serverLifeCycleRuntimes).map((r) => [r.name, r.state]))
   return items(data.value?.servers).map((config) => {
     const runtime = runtimes.get(config.name)
+    // Worked out once per server rather than three times inside the template:
+    // this walks the whole sample buffer.
+    const heapPoints = history.heapPercentPoints(config.name)
     return {
       name: config.name,
+      heapPoints,
+      heapLast: heapPoints.length ? heapPoints[heapPoints.length - 1].v : null,
       state: runtime?.state || lifecycles.get(config.name) || 'SHUTDOWN',
       health: runtime?.healthState,
       listen: `${config.listenAddress || 'localhost'}:${config.listenPort ?? '—'}`,
@@ -235,10 +234,11 @@ const serversTone = computed(() => {
             <!-- The shape matters more than the reading: a sawtooth is healthy
                  garbage collection, a staircase is a leak. -->
             <SparkLine
-              :values="history.heapPercentSeries(server.name)"
+              :points="server.heapPoints"
               :max="100"
               :height="26"
-              :tone="history.heapPercentSeries(server.name).at(-1) >= 90 ? 'bad' : 'default'"
+              :gap-ms="history.gapMs"
+              :tone="server.heapLast >= 90 ? 'bad' : 'default'"
               :title="$t('Heap used, {window}', { window: historyWindow })"
               :empty-text="$t('heap history builds up as the console runs')"
             />

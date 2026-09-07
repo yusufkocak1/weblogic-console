@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import * as api from '@/api/client'
 import { useUiStore } from '@/stores/ui'
 import { setTitleBadge } from '@/utils/title'
 import { t } from '@/i18n'
@@ -14,11 +15,27 @@ import { t } from '@/i18n'
  * Rules are edge-triggered: an alert is raised when a condition starts holding
  * and again only after it has stopped. A heap sitting at 95% for an hour is one
  * alert, not two hundred and forty.
+ *
+ * Two things separate a threshold that is useful from one that gets muted in a
+ * week. The first is that a level has to *hold*: a heap touching 91% for a
+ * single sample during a garbage collection is not news, so level rules must be
+ * true continuously for `sustainMs` before they are announced, while rules
+ * about state — a server leaving RUNNING, a thread going stuck — fire at once,
+ * because those are already events rather than levels. The second is that one
+ * threshold rarely fits every server: an AdminServer idling at 85% heap is
+ * normal and a managed server doing the same is not, so any rule can be
+ * overridden per server.
  */
 
 const RULES_KEY = 'wl-console.alerts.rules'
+const OVERRIDES_KEY = 'wl-console.alerts.overrides'
 const DESKTOP_KEY = 'wl-console.alerts.desktop'
+const FORWARD_KEY = 'wl-console.alerts.forward'
+const ALERTS_KEY = 'wl-console.alerts.log'
+const SNOOZE_KEY = 'wl-console.alerts.snoozed'
 const MAX_ALERTS = 200
+/** Alerts older than this are not worth reading back after a reload. */
+const ALERT_TTL_MS = 24 * 60 * 60 * 1000
 
 export const DEFAULT_RULES = {
   /** Any server that was RUNNING and no longer is. */
@@ -31,40 +48,110 @@ export const DEFAULT_RULES = {
   queueLength: 50,
   /** A running server reporting anything other than OK. */
   unhealthy: true,
+  /** Threads waiting for a JDBC connection. 0 turns the rule off. */
+  jdbcWaiting: 1,
+  /** JMS messages sitting unacknowledged. 0 turns the rule off. */
+  jmsPending: 0,
+  /**
+   * A heap that climbs this many percentage points inside the window below.
+   * This is the rule that catches a leak before it reaches the ceiling, which
+   * a fixed threshold by definition cannot.
+   */
+  heapRisePercent: 25,
+  heapRiseMinutes: 10,
+  /** A JVM whose start time changed between two samples — it was restarted. */
+  restart: true,
+  /**
+   * How long a level has to hold before it is announced. Zero announces the
+   * first sample that crosses, which is what this console used to do and what
+   * made a threshold near the working range unusable.
+   */
+  sustainMs: 60_000,
 }
 
-function readRules() {
+/** How long a snooze lasts, offered where one is taken. */
+export const SNOOZE_OPTIONS = [
+  { label: () => t('15 minutes'), value: 15 * 60_000 },
+  { label: () => t('1 hour'), value: 60 * 60_000 },
+  { label: () => t('4 hours'), value: 4 * 60 * 60_000 },
+  { label: () => t('Until tomorrow'), value: 12 * 60 * 60_000 },
+]
+
+/** Rules about a level, which must hold; everything else is an event. */
+const SUSTAINED = new Set(['heap', 'queue', 'health', 'jdbc', 'jms'])
+
+function readJson(key, fallback) {
   try {
-    const raw = JSON.parse(localStorage.getItem(RULES_KEY) || '{}')
-    return { ...DEFAULT_RULES, ...raw }
+    const raw = JSON.parse(localStorage.getItem(key) || 'null')
+    return raw && typeof raw === 'object' ? raw : fallback
   } catch {
-    return { ...DEFAULT_RULES }
+    return fallback
   }
 }
 
-function readDesktop() {
+function writeJson(key, value) {
   try {
-    return localStorage.getItem(DESKTOP_KEY) === '1'
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* storage disabled or full — the setting lasts as long as this page */
+  }
+}
+
+function readRules() {
+  return { ...DEFAULT_RULES, ...readJson(RULES_KEY, {}) }
+}
+
+function readAlerts() {
+  const raw = readJson(ALERTS_KEY, [])
+  if (!Array.isArray(raw)) return []
+  const cutoff = Date.now() - ALERT_TTL_MS
+  return raw.filter((alert) => alert && typeof alert.at === 'number' && alert.at > cutoff).slice(0, MAX_ALERTS)
+}
+
+function readFlag(key) {
+  try {
+    return localStorage.getItem(key) === '1'
   } catch {
     return false
   }
 }
 
-let sequence = 0
+let sequence = Date.now()
 
 /**
- * Which conditions are currently holding, keyed by rule and server. This is
- * what makes the rules edge-triggered rather than a stream of repeats.
+ * Which conditions are currently holding, keyed by rule and server, and since
+ * when. This is what makes the rules edge-triggered rather than a stream of
+ * repeats, and what lets a level be required to hold before it is announced.
  */
-const firing = new Map()
+const conditions = new Map()
+
+/**
+ * A short tail of heap readings per server, long enough to answer "how much has
+ * this climbed in the last ten minutes". The history store holds the same
+ * numbers, but a rule that reached into it would only run when a page using it
+ * was open; this runs wherever the samples arrive.
+ */
+const heapTail = new Map()
+
+/** The JVM start time last seen per server, for spotting a restart. */
+const lastActivation = new Map()
 
 export const useAlertsStore = defineStore('alerts', {
   state: () => ({
-    alerts: [],
-    unread: 0,
+    alerts: readAlerts(),
+    // An alert raised while the tab was closed is still unread when it opens.
+    unread: readAlerts().filter((alert) => !alert.read).length,
     rules: readRules(),
+    /** Per-server thresholds, sparse: only what differs from the rules above. */
+    overrides: readJson(OVERRIDES_KEY, {}),
+    /** server -> epoch ms until which nothing about it is announced. */
+    snoozed: readJson(SNOOZE_KEY, {}),
     /** Browser notifications, off until the user turns them on and grants it. */
-    desktop: readDesktop(),
+    desktop: readFlag(DESKTOP_KEY),
+    /** Hand alerts to the backend's webhook as well, when it has one. */
+    forward: readFlag(FORWARD_KEY),
+    /** Whether the backend actually has a webhook configured. */
+    webhookAvailable: false,
     /** Set while the user is looking at the panel, so nothing is marked unread. */
     open: false,
     /**
@@ -82,16 +169,47 @@ export const useAlertsStore = defineStore('alerts', {
       if (state.alerts.some((alert) => !alert.read && alert.severity === 'warn')) return 'warn'
       return state.alerts.some((alert) => !alert.read) ? 'info' : 'none'
     },
+
+    /** The value a rule has for one server: its override, else the default. */
+    ruleFor: (state) => (server, key) => {
+      const override = state.overrides[server]?.[key]
+      return override === undefined || override === null || override === '' ? state.rules[key] : override
+    },
+
+    /** Servers with a threshold of their own, for the panel to list. */
+    overriddenServers: (state) => Object.keys(state.overrides).sort(),
+
+    snoozedUntil: (state) => (server) => {
+      const until = state.snoozed[server]
+      return until && until > Date.now() ? until : null
+    },
+
+    anySnoozed: (state) => Object.values(state.snoozed).some((until) => until > Date.now()),
   },
 
   actions: {
     setRule(key, value) {
       this.rules = { ...this.rules, [key]: value }
-      try {
-        localStorage.setItem(RULES_KEY, JSON.stringify(this.rules))
-      } catch {
-        /* storage disabled — the rules go back to defaults next visit */
-      }
+      writeJson(RULES_KEY, this.rules)
+    },
+
+    /** One server's own threshold. An empty value drops back to the default. */
+    setOverride(server, key, value) {
+      const next = { ...(this.overrides[server] || {}) }
+      if (value === '' || value === null || value === undefined) delete next[key]
+      else next[key] = value
+      const all = { ...this.overrides }
+      if (Object.keys(next).length) all[server] = next
+      else delete all[server]
+      this.overrides = all
+      writeJson(OVERRIDES_KEY, all)
+    },
+
+    clearOverrides(server) {
+      const all = { ...this.overrides }
+      if (server) delete all[server]
+      this.overrides = server ? all : {}
+      writeJson(OVERRIDES_KEY, this.overrides)
     },
 
     resetRules() {
@@ -101,6 +219,21 @@ export const useAlertsStore = defineStore('alerts', {
       } catch {
         /* nothing to clean up */
       }
+    },
+
+    /**
+     * Quiet about one server for a while.
+     *
+     * The alternative to this is turning a rule off across the domain because
+     * one server is being worked on, and then not turning it back on. A snooze
+     * expires by itself.
+     */
+    snooze(server, ms) {
+      const all = { ...this.snoozed }
+      if (ms) all[server] = Date.now() + Number(ms)
+      else delete all[server]
+      this.snoozed = all
+      writeJson(SNOOZE_KEY, all)
     },
 
     /** Asks the browser for permission the first time notifications are turned on. */
@@ -128,9 +261,22 @@ export const useAlertsStore = defineStore('alerts', {
       return this.desktop
     },
 
+    setForward(enabled) {
+      this.forward = Boolean(enabled)
+      try {
+        localStorage.setItem(FORWARD_KEY, this.forward ? '1' : '0')
+      } catch {
+        /* storage disabled */
+      }
+    },
+
+    persist() {
+      writeJson(ALERTS_KEY, this.alerts)
+    },
+
     raise({ key, severity = 'warn', title, detail = '', server = '' }) {
       const alert = {
-        id: ++sequence,
+        id: (sequence += 1),
         key,
         severity,
         title,
@@ -143,6 +289,7 @@ export const useAlertsStore = defineStore('alerts', {
       if (this.alerts.length > MAX_ALERTS) this.alerts.length = MAX_ALERTS
       if (!alert.read) this.unread += 1
       setTitleBadge(this.unread)
+      this.persist()
 
       const ui = useUiStore()
       if (severity === 'error') ui.error(title, detail)
@@ -157,6 +304,15 @@ export const useAlertsStore = defineStore('alerts', {
           // worker; the in-console toast has already been shown either way.
         }
       }
+
+      // Out of the browser entirely, when the backend was given somewhere to
+      // send it. Deliberately not awaited: an alert is on screen already, and
+      // a slow chat server must not hold up the sample being processed.
+      if (this.forward && this.webhookAvailable && severity !== 'info') {
+        api.notify({ severity, title, detail, server }).catch(() => {
+          /* the backend reports its own failures; here it changes nothing */
+        })
+      }
       return alert
     },
 
@@ -164,27 +320,57 @@ export const useAlertsStore = defineStore('alerts', {
      * Runs the rules over new samples.
      *
      * @param {{t: number, servers: Record<string, object>}[]} samples
+     * @param {{intervalMs?: number, webhook?: boolean}} context
      */
-    ingest(samples) {
+    ingest(samples, context = {}) {
+      if (context.webhook !== undefined) this.webhookAvailable = Boolean(context.webhook)
       // The first batch also carries whatever history the backend had already
       // collected, so it only sets the baseline. Everything after it is a
       // change that happened while you were watching.
       const silent = !this.primed
       for (const sample of samples) {
         for (const [server, entry] of Object.entries(sample.servers || {})) {
-          this.check(server, entry, silent)
+          this.remember(server, entry, sample.t)
+          this.check(server, entry, silent, sample.t)
         }
       }
       if (samples.length) this.primed = true
     },
 
-    /** One server, one sample. Kept separate so it can be reasoned about alone. */
-    check(server, entry, silent = false) {
-      const running = entry.st === 'RUNNING'
+    /** Keeps the tail of readings the rules that need more than one sample use. */
+    remember(server, entry, at) {
+      if (!entry.hm) return
+      const tail = heapTail.get(server) || []
+      tail.push({ t: at, v: (entry.hu / entry.hm) * 100 })
+      const window = Math.max(1, Number(this.rules.heapRiseMinutes || 10)) * 60_000
+      while (tail.length > 2 && tail[0].t < at - window) tail.shift()
+      heapTail.set(server, tail)
+    },
 
-      this.evaluate(silent, {
+    /** How much the heap has climbed across the tail above, in points. */
+    heapRise(server) {
+      const tail = heapTail.get(server)
+      if (!tail || tail.length < 3) return null
+      const window = Math.max(1, Number(this.rules.heapRiseMinutes || 10)) * 60_000
+      // Only worth reporting once the tail actually covers most of its window;
+      // before that a rise of 25 points may be 25 points in ninety seconds.
+      if (tail[tail.length - 1].t - tail[0].t < window * 0.8) return null
+      let lowest = tail[0].v
+      for (const point of tail) if (point.v < lowest) lowest = point.v
+      return tail[tail.length - 1].v - lowest
+    },
+
+    /** One server, one sample. Kept separate so it can be reasoned about alone. */
+    check(server, entry, silent = false, at = Date.now()) {
+      const running = entry.st === 'RUNNING'
+      const rule = (key) => this.ruleFor(server, key)
+      // A snooze silences the announcement, not the bookkeeping: conditions
+      // still rise and clear underneath, so nothing double-fires when it ends.
+      const quiet = silent || Boolean(this.snoozedUntil(server))
+
+      this.evaluate(quiet, at, {
         key: `down:${server}`,
-        active: this.rules.serverDown && !running && entry.st !== 'UNKNOWN',
+        active: rule('serverDown') && !running && entry.st !== 'UNKNOWN',
         severity: 'error',
         title: t('{server} is {state}', { server, state: String(entry.st || t('not running')).toLowerCase() }),
         detail: t('The server left the RUNNING state. Check the Servers page and its log.'),
@@ -196,27 +382,77 @@ export const useAlertsStore = defineStore('alerts', {
         },
       })
 
+      // A JVM whose start time moved went away and came back. Nothing else in
+      // a sample says so: every other number simply starts again from a
+      // plausible value, and a crash-restart loop reads as a quiet server.
+      const activation = Number(entry.ac || 0)
+      const previousActivation = lastActivation.get(server)
+      if (activation) lastActivation.set(server, activation)
+      if (
+        rule('restart') &&
+        !quiet &&
+        running &&
+        previousActivation &&
+        activation &&
+        activation !== previousActivation
+      ) {
+        this.raise({
+          key: `restart:${server}:${activation}`,
+          severity: 'warn',
+          server,
+          title: t('{server} restarted', { server }),
+          detail: t(
+            'This JVM started again at {time}. If nobody restarted it, the process is failing and being brought back.',
+            { time: new Date(activation).toLocaleTimeString() },
+          ),
+        })
+      }
+
       const heapPercent = entry.hm ? (entry.hu / entry.hm) * 100 : null
-      this.evaluate(silent, {
+      this.evaluate(quiet, at, {
         key: `heap:${server}`,
-        active: running && heapPercent !== null && heapPercent >= Number(this.rules.heapPercent || 0),
+        kind: 'heap',
+        active: running && heapPercent !== null && heapPercent >= Number(rule('heapPercent') || 0),
         severity: 'warn',
         title: t('{server} heap at {percent}%', { server, percent: Math.round(heapPercent || 0) }),
         detail: t(
-          'Heap in use has passed {threshold}% of the JVM maximum. Sustained, this shows up as slowness long before an OutOfMemoryError.',
-          { threshold: this.rules.heapPercent },
+          'Heap in use has passed {threshold}% of the JVM maximum for {minutes} min. Sustained, this shows up as slowness long before an OutOfMemoryError.',
+          { threshold: rule('heapPercent'), minutes: Math.round(Number(this.rules.sustainMs || 0) / 60000) || 1 },
         ),
         server,
         recovery: {
           severity: 'info',
-          title: t('{server} heap is back under {threshold}%', { server, threshold: this.rules.heapPercent }),
+          title: t('{server} heap is back under {threshold}%', { server, threshold: rule('heapPercent') }),
           detail: t('Garbage collection recovered the memory.'),
         },
       })
 
-      this.evaluate(silent, {
+      // The shape a leak makes, rather than the level it eventually reaches.
+      const rise = running ? this.heapRise(server) : null
+      const riseLimit = Number(rule('heapRisePercent') || 0)
+      this.evaluate(quiet, at, {
+        key: `heaprise:${server}`,
+        active: riseLimit > 0 && rise !== null && rise >= riseLimit,
+        severity: 'warn',
+        title: t('{server} heap climbing', { server }),
+        detail: t(
+          'Heap has risen {points} points in the last {minutes} min without coming back down. That is the shape of a leak, whatever the current level is.',
+          {
+            points: Math.round(rise || 0),
+            minutes: this.rules.heapRiseMinutes,
+          },
+        ),
+        server,
+        recovery: {
+          severity: 'info',
+          title: t('{server} heap settled', { server }),
+          detail: t('The heap came back down; garbage collection is keeping up again.'),
+        },
+      })
+
+      this.evaluate(quiet, at, {
         key: `stuck:${server}`,
-        active: running && entry.sk >= Number(this.rules.stuckThreads || 1),
+        active: running && entry.sk >= Number(rule('stuckThreads') || 1),
         severity: 'error',
         title:
           entry.sk === 1
@@ -231,18 +467,65 @@ export const useAlertsStore = defineStore('alerts', {
         },
       })
 
-      this.evaluate(silent, {
+      this.evaluate(quiet, at, {
         key: `queue:${server}`,
-        active: running && entry.q >= Number(this.rules.queueLength || 0) && Number(this.rules.queueLength) > 0,
+        kind: 'queue',
+        active: running && entry.q >= Number(rule('queueLength') || 0) && Number(rule('queueLength')) > 0,
         severity: 'warn',
         title: t('{server} has {count} requests queued', { server, count: entry.q }),
         detail: t('More work is arriving than the thread pool is finishing. Look for a slow downstream system first.'),
         server,
+        recovery: {
+          severity: 'info',
+          title: t('{server} queue has drained', { server }),
+          detail: t('Requests are no longer waiting for a thread.'),
+        },
       })
 
-      this.evaluate(silent, {
+      // Where "look for a slow downstream system" usually ends: threads are
+      // not blocked in the server at all, they are queuing for a database
+      // connection. This is the rule the thread-pool numbers alone cannot make.
+      const waiting = Number(entry.dsw || 0)
+      const waitLimit = Number(rule('jdbcWaiting') || 0)
+      this.evaluate(quiet, at, {
+        key: `jdbc:${server}`,
+        kind: 'jdbc',
+        active: running && waitLimit > 0 && waiting >= waitLimit,
+        severity: 'warn',
+        title: t('{server} is waiting for JDBC connections', { server }),
+        detail: t(
+          '{count} request(s) are queued for a connection from a data source pool. Either the pool is too small or the database is answering slowly.',
+          { count: waiting },
+        ),
+        server,
+        recovery: {
+          severity: 'info',
+          title: t('{server} is no longer waiting for JDBC connections', { server }),
+          detail: t('Connections are available again.'),
+        },
+      })
+
+      const pending = Number(entry.jmp || 0)
+      const pendingLimit = Number(rule('jmsPending') || 0)
+      this.evaluate(quiet, at, {
+        key: `jms:${server}`,
+        kind: 'jms',
+        active: running && pendingLimit > 0 && pending >= pendingLimit,
+        severity: 'warn',
+        title: t('{server} has {count} JMS messages pending', { server, count: pending }),
+        detail: t('Messages are sitting unacknowledged. A consumer has probably stopped or slowed down.'),
+        server,
+        recovery: {
+          severity: 'info',
+          title: t('{server} JMS messages are clearing', { server }),
+          detail: t('Pending messages are back under the threshold.'),
+        },
+      })
+
+      this.evaluate(quiet, at, {
         key: `health:${server}`,
-        active: this.rules.unhealthy && running && entry.he && entry.he !== 'OK' && entry.he !== 'UNKNOWN',
+        kind: 'health',
+        active: rule('unhealthy') && running && entry.he && entry.he !== 'OK' && entry.he !== 'UNKNOWN',
         severity: 'warn',
         title: t('{server} reports {health}', { server, health: entry.he }),
         detail: t('The server is running but does not consider itself healthy. Its log usually says which subsystem.'),
@@ -257,35 +540,55 @@ export const useAlertsStore = defineStore('alerts', {
 
     /**
      * Raises on the rising edge, and optionally says so again when it clears.
+     *
+     * A rule about a level (`kind` in SUSTAINED) must be true continuously for
+     * `sustainMs` before it is announced — the timestamps come from the samples
+     * themselves, so a batch of history replayed at once is judged on when the
+     * readings were taken rather than on when they were read.
+     *
      * `silent` records the condition without announcing it, which is how the
-     * first batch of samples becomes a baseline instead of a burst of alerts.
+     * first batch of samples becomes a baseline instead of a burst of alerts,
+     * and how a snoozed server stays quiet without losing its edges.
      */
-    evaluate(silent, { key, active, recovery, ...alert }) {
-      const wasActive = firing.get(key) === true
-      if (active && !wasActive) {
-        firing.set(key, true)
-        if (!silent) this.raise({ key, ...alert })
-      } else if (!active && wasActive) {
-        firing.set(key, false)
-        if (recovery && !silent) this.raise({ key: `${key}:clear`, server: alert.server, ...recovery })
+    evaluate(silent, at, { key, kind, active, recovery, ...alert }) {
+      const state = conditions.get(key) || { since: 0, fired: false }
+
+      if (active) {
+        if (!state.since) state.since = at
+        const sustain = SUSTAINED.has(kind) ? Number(this.rules.sustainMs || 0) : 0
+        if (!state.fired && at - state.since >= sustain) {
+          state.fired = true
+          if (!silent) this.raise({ key, ...alert })
+        }
+      } else if (state.since) {
+        const wasFired = state.fired
+        state.since = 0
+        state.fired = false
+        if (wasFired && recovery && !silent) this.raise({ key: `${key}:clear`, server: alert.server, ...recovery })
       }
+
+      conditions.set(key, state)
     },
 
     markAllRead() {
       for (const alert of this.alerts) alert.read = true
       this.unread = 0
       setTitleBadge(0)
+      this.persist()
     },
 
     clear() {
       this.alerts = []
       this.unread = 0
       setTitleBadge(0)
+      this.persist()
     },
 
     /** Switching domains: the old domain's alerts are not this domain's news. */
     reset() {
-      firing.clear()
+      conditions.clear()
+      heapTail.clear()
+      lastActivation.clear()
       this.primed = false
       this.clear()
     },

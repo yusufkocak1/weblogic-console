@@ -191,6 +191,13 @@ export const history = (since = 0, options = {}) => {
   })
 }
 
+/**
+ * Hands one alert to the backend, which forwards it to whatever webhook it was
+ * configured with. Nothing happens — and nothing fails — when it has none.
+ */
+export const notify = (alert) =>
+  send(`${API_BASE}/notify`, { method: 'POST', body: alert, timeoutMs: 15000 })
+
 export const openConnection = (credentials) =>
   send(`${API_BASE}/connections`, { method: 'POST', body: credentials, timeoutMs: 30000 })
 

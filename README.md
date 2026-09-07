@@ -181,18 +181,31 @@ so the `t()` calls stay in the source where it can see them.
 
 All configuration is environment variables — there is no config file to manage.
 
-| Variable              | Default                 | Purpose                                                        |
-| --------------------- | ----------------------- | -------------------------------------------------------------- |
-| `WLC_PORT`            | `7101`                  | Port the local console listens on                               |
-| `WLC_HOST`            | `127.0.0.1`             | Bind address — loopback on purpose                              |
-| `WLC_HOME`            | `~/.wl-console`         | Directory holding `profiles.json`                               |
-| `WLC_SAMPLE_MS`       | `15000`                 | How often runtime is sampled for charts and alerts; `0` is off  |
-| `WLC_HISTORY_MINUTES` | `120`                   | How much of that history is kept in memory                      |
-| `WLC_MAX_UPLOAD_MB`   | `256`                   | Largest application archive the deployment proxy will forward   |
-| `VITE_BACKEND_URL`    | `http://127.0.0.1:7101` | Where Vite proxies `/api` during development                    |
+| Variable                        | Default                 | Purpose                                                             |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------------- |
+| `WLC_PORT`                      | `7101`                  | Port the local console listens on                                    |
+| `WLC_HOST`                      | `127.0.0.1`             | Bind address — loopback on purpose                                   |
+| `WLC_HOME`                      | `~/.wl-console`         | Directory holding `profiles.json` and `history/`                     |
+| `WLC_SAMPLE_MS`                 | `15000`                 | How often runtime is sampled for charts and alerts; `0` is off       |
+| `WLC_SAMPLE_DEPTH`              | `full`                  | `basic` samples only servers, heap and threads — no JDBC, JTA or JMS |
+| `WLC_SAMPLE_ALWAYS`             | unset                   | `1` keeps sampling when no browser has used the session recently     |
+| `WLC_HISTORY_MINUTES`           | `120`                   | How much of that history is kept in memory                           |
+| `WLC_HISTORY_FILE_MINUTES`      | `1440`                  | How much is kept on disk, so a restart does not erase it; `0` is off |
+| `WLC_METRICS`                   | unset                   | `1` publishes `/metrics` in Prometheus format                        |
+| `WLC_METRICS_TOKEN`             | unset                   | Enables `/metrics` and requires this token (bearer or `?token=`)     |
+| `WLC_ALERT_WEBHOOK`             | unset                   | URL alerts are POSTed to, for when nobody has the console open       |
+| `WLC_ALERT_WEBHOOK_MAX_PER_HOUR`| `60`                    | Cap on those forwards, so a stuck rule cannot flood a chat channel   |
+| `WLC_MAX_UPLOAD_MB`             | `256`                   | Largest application archive the deployment proxy will forward        |
+| `VITE_BACKEND_URL`              | `http://127.0.0.1:7101` | Where Vite proxies `/api` during development                         |
 
 ```bash
 WLC_PORT=8080 npm start          # run somewhere else
+
+# Watch a domain around the clock and let Prometheus scrape it
+WLC_SAMPLE_ALWAYS=1 WLC_METRICS_TOKEN=$(openssl rand -hex 16) npm start
+
+# Send alerts to a chat channel as well as to the browser
+WLC_ALERT_WEBHOOK=https://chat.example.com/hooks/abc npm start
 ```
 
 ## How it works
@@ -240,12 +253,46 @@ The browser only polls while a page is open, which is no use for a chart or for
 noticing that a server went down ten minutes ago. So the backend samples each
 live connection itself — one small `search` every `WLC_SAMPLE_MS` — and keeps
 `WLC_HISTORY_MINUTES` of it in a ring buffer per connection. That buffer feeds
-the sparklines and the alert rules, and it never touches the disk: it dies with
-the process, like the credentials do.
+the charts and the alert rules.
+
+One sample carries each server's state and health, its heap, its thread pool,
+and — at the default `full` depth — the three subsystems a slow server is
+usually waiting on: its JDBC pools, its JTA counters and its JMS servers. The
+thread pool answers "is this server busy"; the JDBC pool answers "is it busy
+because it is waiting for a database", which is the next question in almost
+every investigation.
+
+The buffer also goes to disk, one line-delimited JSON file per AdminServer
+identity under `$WLC_HOME/history/`, keyed by host, port and user rather than by
+connection id — a connection id is new on every login and the history is not.
+A restart of the console is exactly when the last hour matters, so reconnecting
+reads it back. Credentials still never touch the disk; `WLC_HISTORY_FILE_MINUTES=0`
+turns the file off for a site that wants nothing kept.
 
 Sampling follows the browser rather than running forever. A session nobody has
 touched for fifteen minutes is skipped, so a console left open in a background
-tab overnight stops asking the AdminServer anything at all.
+tab overnight stops asking the AdminServer anything at all. `WLC_SAMPLE_ALWAYS=1`
+overrides that for a console meant to keep watching, so whoever arrives in the
+morning finds the night in the charts.
+
+### Metrics and alerts elsewhere
+
+This console is already asking each AdminServer the question a scraper would
+ask, on an interval a scraper would use. `WLC_METRICS=1` (or setting
+`WLC_METRICS_TOKEN`) publishes the newest sample at `/metrics` in Prometheus
+text format — heap, threads, stuck threads, queue depth, throughput, JDBC pools
+per data source, JTA and JMS — so a site can keep the history in whatever it
+already uses for that, and so the numbers outlive any browser tab. It is off by
+default: it answers without a console session, and although the process binds to
+loopback, publishing runtime numbers should be a decision somebody made.
+
+The alert rules run in the browser, because that is where their thresholds are
+set and where the samples already arrive. What the browser cannot do is reach a
+chat channel, so when `WLC_ALERT_WEBHOOK` is set the console posts each alert to
+the backend and the backend forwards it as JSON — `{severity, title, detail,
+server, domain, at, text}` — capped at `WLC_ALERT_WEBHOOK_MAX_PER_HOUR` so a
+rule stuck on cannot turn into a thousand messages. Turn it on per browser from
+the bell menu.
 
 ### Activity and rollback
 
@@ -341,7 +388,7 @@ depends on Vue, Vue Router, Pinia and Tailwind — nothing else at runtime.
 | **Data Sources**  | JDBC URL, driver, JNDI names, pool capacity; live active/waiting/failure counts and a connection test | `JDBCSystemResources`, `JDBCDataSourceRuntimeMBeans`, `testPool`     |
 | **JMS**           | JMS servers and destinations with message counts and consumers, plus the persistent stores, SAF agents and bridges underneath them | `JMSRuntime`, `persistentStoreRuntimes`, `SAFRuntime`, `messagingBridgeRuntimes` |
 | **Transactions**  | JTA totals per server — commits, rollbacks and why they rolled back, heuristics, average duration — and work manager queues | `JTARuntime`, `workManagerRuntimes`                                 |
-| **Monitoring**    | Per-server JVM heap, committed size, uptime, Java version; thread pool busy/idle, hogging, **stuck**, queue depth, throughput, each with its recent history | `JVMRuntime`, `threadPoolRuntime`                                   |
+| **Monitoring**    | Per-server JVM heap with its garbage-collection floor and trend, committed size, uptime, Java version; thread pool busy/idle, hogging, **stuck**, queue depth, throughput, saturation, JDBC pool pressure — charted on a real time axis, comparable across servers, exportable as CSV | `JVMRuntime`, `threadPoolRuntime`, `JDBCServiceRuntime`             |
 | **Logs**          | Server log records with minimum-severity filter, message search, time window; the filters live in the URL | WLDF data accessor (`search`, with cursor fallback)                 |
 | **Security**      | The realm, its authentication providers in the order they are consulted, and the users and groups they hold — read-only | `securityConfiguration/realms/…`                                    |
 | **Compare**       | Two open domains side by side: what exists on one side only, and every attribute that differs | `domainConfig/search` against both connections                      |
@@ -472,7 +519,22 @@ section before you deploy it anywhere other than your own workstation.
 - **Background sampling costs one small request per domain per interval.** On a
   domain where even that is unwelcome, `WLC_SAMPLE_MS=0` turns it off — the
   charts and alerts go quiet with it, and the console says so rather than
-  showing empty graphs.
+  showing empty graphs. `WLC_SAMPLE_DEPTH=basic` is the middle setting: servers,
+  heap and threads, without the JDBC, JTA and JMS subtrees.
+- **Runtime samples are written to disk, and credentials still are not.** The
+  history under `$WLC_HOME/history/` holds counters — heap, threads, pool
+  depths, message counts — with owner-only permissions, and no hostnames beyond
+  a hash in the filename. It exists so that restarting the console does not
+  erase the hour leading up to whatever made you restart it. Set
+  `WLC_HISTORY_FILE_MINUTES=0` to keep nothing.
+- **`/metrics` answers without a console session.** That is what makes it
+  scrapeable, and it is why it is off unless you set `WLC_METRICS=1` or
+  `WLC_METRICS_TOKEN`. Set the token if anything but this machine can reach the
+  port, and remember that runtime numbers name your servers and data sources.
+- **`WLC_ALERT_WEBHOOK` sends alert text off the machine.** Alert titles carry
+  server names and readings, and they go to whatever URL you give — over the
+  network, to a third party if that is where the webhook lives. It is unset by
+  default and each browser still has to opt in from the bell menu.
 
 ## Troubleshooting
 
